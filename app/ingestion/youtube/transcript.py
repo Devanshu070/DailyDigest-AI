@@ -12,23 +12,28 @@ except ImportError:
 
 def fetch_transcript(video_id: str) -> str:
     """
-    Fetches an English transcript for a given video ID.
+    Returns an English transcript for the video as a single string,
+    or "" if no transcript is available.
+
+    Tries manually created transcripts first, then auto-generated ones.
+    Non-English transcripts are intentionally ignored.
     """
     if not HAS_TRANSCRIPT_API:
         log.warning("youtube-transcript-api not installed — transcripts unavailable.")
         return ""
 
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-        # English-only: manual first, then auto-generated
+        transcript_list = YouTubeTranscriptApi().list(video_id)
         for fetch_fn in [
             lambda tl: tl.find_manually_created_transcript(["en", "en-US", "en-GB", "en-IN"]),
             lambda tl: tl.find_generated_transcript(["en", "en-US", "en-GB", "en-IN"]),
         ]:
             try:
                 transcript = fetch_fn(transcript_list).fetch()
-                return "\n".join(segment["text"] for segment in transcript)
+                return "\n".join(
+                    segment.text if hasattr(segment, "text") else segment["text"]
+                    for segment in transcript
+                )
             except Exception:
                 continue
 
