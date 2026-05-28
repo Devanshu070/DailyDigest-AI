@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from app.ingestion.youtube.constants import BROWSER_HEADERS
+from app.ingestion.youtube.resolver import BROWSER_HEADERS
 
 log = logging.getLogger(__name__)
 

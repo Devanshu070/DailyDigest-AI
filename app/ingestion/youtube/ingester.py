@@ -7,8 +7,7 @@ import feedparser
 import httpx
 
 from app.ingestion.base import BaseIngester, ArticleData
-from app.ingestion.youtube.constants import BROWSER_HEADERS
-from app.ingestion.youtube.resolver import resolve_channel_id
+from app.ingestion.youtube.resolver import resolve_channel_id, BROWSER_HEADERS
 from app.ingestion.youtube.transcript import fetch_transcript
 from app.ingestion.youtube.scraper import scrape_channel_videos
 
@@ -33,9 +32,9 @@ class YouTubeIngester(BaseIngester):
       2. Falls back to the RSS description if no English transcript is available.
     """
 
-    def __init__(self, run_at: datetime | None = None):
+    def __init__(self, run_at: datetime | None = None, window_hours: int = 24):
         self.run_at: datetime = run_at or datetime.now(timezone.utc)
-        self.window_start: datetime = self.run_at - timedelta(hours=24)
+        self.window_start: datetime = self.run_at - timedelta(hours=window_hours)
 
     def resolve_channel_id(self, source_url: str) -> str:
         """Resolves any recognised YouTube identifier to a raw Channel ID (UC...)."""
