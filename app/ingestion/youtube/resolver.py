@@ -14,7 +14,7 @@ BROWSER_HEADERS = {
     ),
     "Accept-Language": "en-US,en;q=0.9",
 }
-
+ 
 log = logging.getLogger(__name__)
 
 
