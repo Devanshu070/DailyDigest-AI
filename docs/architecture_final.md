@@ -23,13 +23,15 @@ flowchart TD
         INGEST[app/ingestion]
     end
 
-    INGEST --> DB[(PostgreSQL)]
+    INGEST -->|Raw Data| DB[(PostgreSQL)]
 
-    DB --> CLEANER
+    DB -->|Fetch Raw| CLEANER
 
     subgraph PROCESSING_LAYER [Processing Layer]
         CLEANER[cleaner.py]
     end
+
+    CLEANER -.->|Update Cleaned| DB
 
     CLEANER --> ROUTER
 
@@ -55,6 +57,8 @@ flowchart TD
     SYNTHESIS --> SUMMARY
 
     SUMMARY[Final Article Summary]
+
+    SUMMARY -.->|Update Summary| DB
 
     SUMMARY --> DIGEST
 
