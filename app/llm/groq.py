@@ -6,6 +6,7 @@ Defaults to meta-llama/llama-4-scout-17b-16e-instruct — Groq's current
 production-ready model, running at high speed on free tier.
 
 Reads GROQ_API_KEY and GROQ_MODEL from the environment.
+Passes an explicit model string to override the env var.
 """
 
 import logging
@@ -23,21 +24,21 @@ class GroqProvider(BaseLLMProvider):
     """
     LLM provider backed by the Groq API.
 
-    Defaults to meta-llama/llama-4-scout-17b-16e-instruct — Groq's current
-    production-ready model. Override with the GROQ_MODEL env var.
+    Defaults to meta-llama/llama-4-scout-17b-16e-instruct — Groq's fast/cheap
+    summarization model. For digest assembly, pass the 70B+ model name directly.
 
     Environment variables:
         GROQ_API_KEY  — required (free at console.groq.com)
-        GROQ_MODEL    — optional, defaults to meta-llama/llama-4-scout-17b-16e-instruct
+        GROQ_MODEL    — optional, defaults to llama-4-scout-17b
     """
 
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
             raise LLMError(
                 "GROQ_API_KEY is not set in the environment. "
             )
-        self.model = os.environ.get("GROQ_MODEL", _DEFAULT_MODEL)
+        self.model = model or os.environ.get("GROQ_MODEL", _DEFAULT_MODEL)
 
         try:
             from groq import Groq, APIError

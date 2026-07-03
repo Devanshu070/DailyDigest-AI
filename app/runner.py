@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 from app.processing.cleaner import clean
 from app.ingestion.youtube.ingester import YouTubeIngester
 from app.ingestion.blog.ingester import BlogIngester
-from app.llm import get_provider
+from app.llm import llm_summarizer, llm_assembler
 from app.digest.summarizer import summarize_article
 from app.digest.models import ArticleSummaryInput
 from app.digest.assembler import generate_digest
@@ -116,7 +116,6 @@ def run() -> None:
     # ----------------------------------------------------------
     # Step 4 — Summarize each cleaned article (Step 1 LLM)
     # ----------------------------------------------------------
-    llm = get_provider()
     summary_inputs: list[ArticleSummaryInput] = []
     summaries: list[str] = []
 
@@ -129,7 +128,7 @@ def run() -> None:
                 cleaned_content=article["cleaned_content"],
                 token_count=article["token_count"],
             )
-            summary = summarize_article(inp, llm)
+            summary = summarize_article(inp, llm_summarizer)
             # TODO: Step 4 — persist summary + llm.model back to DB article record
             summary_inputs.append(inp)
             summaries.append(summary)
@@ -148,7 +147,7 @@ def run() -> None:
     # Step 5 + 6 — Assemble digest (Step 2 LLM) + convert to HTML
     # ----------------------------------------------------------
     try:
-        digest = generate_digest(summary_inputs, summaries, llm)
+        digest = generate_digest(summary_inputs, summaries, llm_assembler)
         # TODO: Step 5 — persist digest record to DB (markdown, html, model_used, prompt_version)
         # TODO: Step 5 — mark all included articles as included_in_digest in DB
         log.info(

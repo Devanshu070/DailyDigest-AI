@@ -92,14 +92,14 @@ def test_llm_ping(llm):
 # Test 2 — Standard Summarization
 # ---------------------------------------------------------------------------
 
-def test_standard_summarize(llm):
+def test_standard_summarize(llm_summarizer):
     print(f"\n\n{SEP}")
     print("TEST 2: Standard Summarization")
     print(SEP)
     print(f"Input article: '{TEST_ARTICLE_SHORT.title}'")
     print(f"Input length:  {len(TEST_ARTICLE_SHORT.cleaned_content)} chars, ~{TEST_ARTICLE_SHORT.token_count} tokens")
 
-    summary = summarize_article(TEST_ARTICLE_SHORT, llm)
+    summary = summarize_article(TEST_ARTICLE_SHORT, llm_summarizer)
 
     print(f"\nSUMMARY OUTPUT ({len(summary)} chars):")
     print("-" * 40)
@@ -111,7 +111,7 @@ def test_standard_summarize(llm):
 # Test 2.5 — Hierarchical Summarization
 # ---------------------------------------------------------------------------
 
-def test_hierarchical_summarize(llm):
+def test_hierarchical_summarize(llm_summarizer):
     print(f"\n\n{SEP}")
     print("TEST 2.5: Hierarchical Summarization")
     print(SEP)
@@ -120,7 +120,7 @@ def test_hierarchical_summarize(llm):
     
     print("\nStarting hierarchical chunking process...")
     # This will trigger our new print statements inside summarizer.py
-    summary = summarize_article(TEST_ARTICLE_LONG, llm)
+    summary = summarize_article(TEST_ARTICLE_LONG, llm_summarizer)
     return summary
 
 
@@ -128,20 +128,20 @@ def test_hierarchical_summarize(llm):
 # Test 3 — Digest Assembly
 # ---------------------------------------------------------------------------
 
-def test_digest_assembly(llm, summary_1: str):
+def test_digest_assembly(llm_summarizer, llm_assembler, summary_1: str):
     print(f"\n\n{SEP}")
     print("TEST 3: Digest Assembly")
     print(SEP)
 
     # Generate a summary for article 2 as well
     print(f"Summarizing article 2: '{TEST_ARTICLE_2.title}'...")
-    summary_2 = summarize_article(TEST_ARTICLE_2, llm)
+    summary_2 = summarize_article(TEST_ARTICLE_2, llm_summarizer)
 
     articles = [TEST_ARTICLE_SHORT, TEST_ARTICLE_2]
     summaries = [summary_1, summary_2]
 
     print(f"\nAssembling digest from {len(articles)} articles...")
-    digest = generate_digest(articles, summaries, llm)
+    digest = generate_digest(articles, summaries, llm_assembler)
 
     print(f"\nDIGEST OUTPUT (model={digest.model_used}, prompt_version={digest.prompt_version}):")
     print("-" * 40)
@@ -155,36 +155,39 @@ def test_digest_assembly(llm, summary_1: str):
 # ---------------------------------------------------------------------------
 
 def main():
+    import os
     print("DailyDigest — LLM Pipeline Test Runner")
-    print("Initializing LLM provider (reads LLM_PROVIDER from .env)...")
+    print("Initializing LLM providers...")
 
     try:
-        llm = get_provider()
+        llm_summarizer = get_provider("groq", model=os.environ.get("GROQ_MODEL_SUMMARIZER"))
+        llm_assembler  = get_provider("groq", model=os.environ.get("GROQ_MODEL_ASSEMBLER"))
     except Exception as exc:
         print(f"\nFAILED to initialize LLM provider: {exc}")
-        print("Make sure GROQ_API_KEY (or the relevant key) is set in your .env file.")
+        print("Make sure API keys are set in your .env file.")
         return
 
     try:
-        test_llm_ping(llm)
+        test_llm_ping(llm_summarizer)
+        test_llm_ping(llm_assembler)
     except Exception as exc:
         print(f"Test 1 FAILED: {exc}")
         return  # No point continuing if the provider itself is broken
 
     summary_1 = None
     try:
-        summary_1 = test_standard_summarize(llm)
+        summary_1 = test_standard_summarize(llm_summarizer)
     except Exception as exc:
         print(f"Test 2 FAILED: {exc}")
 
     if summary_1:
         try:
-            test_hierarchical_summarize(llm)
+            test_hierarchical_summarize(llm_summarizer)
         except Exception as exc:
             print(f"Test 2.5 FAILED: {exc}")
 
         try:
-            test_digest_assembly(llm, summary_1)
+            test_digest_assembly(llm_summarizer, llm_assembler, summary_1)
         except Exception as exc:
             print(f"Test 3 FAILED: {exc}")
 
