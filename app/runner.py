@@ -5,10 +5,11 @@ Execution order:
   1. Load all active sources from DB
   2. Ingest each source (YouTube / Blog) → store raw articles
   3. Clean each fetched article → store cleaned_content + token_count
-  4. Summarize each cleaned article → store summary
-  5. Assemble digest from all summaries → select & sort top N articles (max 10) → store markdown + html
-  6. Send digest via email
-  7. Log full pipeline summary
+  4. Summarize each cleaned article via LLM → store summary
+  5. Assemble digest from all summaries → select top articles (max 10) → store markdown
+  6. Convert markdown digest → HTML
+  7. Send digest via email
+  8. Log full pipeline summary
 
 Run manually (after `alembic upgrade head`):
   python main.py
@@ -21,13 +22,15 @@ log = logging.getLogger(__name__)
 
 
 # TODO: Import DB session + models (app/database.py, app/models/) once built
-# TODO: Import LLM layer (app/llm/) once built — feat/llm-summarization
-# TODO: Import digest summarizer + assembler (app/digest/) once built — feat/llm-summarization
 # TODO: Import email sender (app/email/sender.py) once built
 
 from app.processing.cleaner import clean
 from app.ingestion.youtube.ingester import YouTubeIngester
 from app.ingestion.blog.ingester import BlogIngester
+from app.llm import llm_summarizer, llm_assembler
+from app.digest.summarizer import summarize_article
+from app.digest.models import ArticleSummaryInput
+from app.digest.assembler import generate_digest
 
 
 def run() -> None:
@@ -113,18 +116,47 @@ def run() -> None:
     # ----------------------------------------------------------
     # Step 4 — Summarize each cleaned article (Step 1 LLM)
     # ----------------------------------------------------------
-    # TODO: Step 4 — call summarize_article() per article via LLM; persist summary + model to DB
-    summary_inputs: list = []   # stub
-    summaries: list = []        # stub
+    summary_inputs: list[ArticleSummaryInput] = []
+    summaries: list[str] = []
 
-    log.info("[STUB] Summarization not yet implemented — skipping.")
+    for article in cleaned_articles:
+        try:
+            inp = ArticleSummaryInput(
+                title=article["title"],
+                url=article["url"],
+                source_name=article["source_name"],
+                cleaned_content=article["cleaned_content"],
+                token_count=article["token_count"],
+            )
+            summary = summarize_article(inp, llm_summarizer)
+            # TODO: Step 4 — persist summary + llm.model back to DB article record
+            summary_inputs.append(inp)
+            summaries.append(summary)
+            log.debug("Summarized '%s' → %d chars", article["title"], len(summary))
+        except Exception as exc:
+            log.error("Summarization failed for '%s': %s", article.get("title"), exc)
+            # TODO: Step 4 — increment article_record.retry_count and store last_error in DB
+
+    log.info("Summarization complete: %d/%d articles summarized", len(summaries), len(cleaned_articles))
+
+    if not summaries:
+        log.warning("No summaries produced — skipping digest assembly and email.")
+        return
 
     # ----------------------------------------------------------
     # Step 5 + 6 — Assemble digest (Step 2 LLM) + convert to HTML
     # ----------------------------------------------------------
-    # TODO: Step 5 — call generate_digest() to select & sort top 10 articles; persist digest to DB
-    # TODO: Step 6 — convert digest markdown to HTML
-    log.info("[STUB] Digest assembly not yet implemented — skipping.")
+    try:
+        digest = generate_digest(summary_inputs, summaries, llm_assembler)
+        # TODO: Step 5 — persist digest record to DB (markdown, html, model_used, prompt_version)
+        # TODO: Step 5 — mark all included articles as included_in_digest in DB
+        log.info(
+            "Digest assembled: %d articles included (model=%s)",
+            digest.article_count, digest.model_used,
+        )
+    except Exception as exc:
+        log.error("Digest assembly failed: %s", exc)
+        return
 
     # ----------------------------------------------------------
     # Step 7 — Send email
@@ -140,7 +172,7 @@ def run() -> None:
         ingested=ingested_articles,
         cleaned=cleaned_articles,
         summarized=summaries,
-        digest_articles=0,  # TODO: replace with digest.article_count once Step 5+6 are implemented
+        digest_articles=digest.article_count,
     )
 
 
