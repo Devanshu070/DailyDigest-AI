@@ -18,6 +18,8 @@ class BaseLLMProvider(ABC):
     not here.
     """
 
+    model: str  # Each provider sets this in __init__ to the active model slug
+
     @abstractmethod
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         """
