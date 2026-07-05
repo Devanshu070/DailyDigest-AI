@@ -15,15 +15,12 @@ Run manually (after `alembic upgrade head`):
   python main.py
 """
 
+import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-log = logging.getLogger(__name__)
-
-
-# TODO: Import DB session + models (app/database.py, app/models/) once built
-# TODO: Import email sender (app/email/sender.py) once built
-
+from app.database import get_db
+from app.models import Article, DailyDigest, ProcessingStatus, Source, SourceType
 from app.processing.cleaner import clean
 from app.ingestion.youtube.ingester import YouTubeIngester
 from app.ingestion.blog.ingester import BlogIngester
@@ -31,6 +28,10 @@ from app.llm import llm_summarizer, llm_assembler
 from app.digest.summarizer import summarize_article
 from app.digest.models import ArticleSummaryInput
 from app.digest.assembler import generate_digest
+
+# TODO: Import email sender (app/email/sender.py) once built
+
+log = logging.getLogger(__name__)
 
 
 def run() -> None:
@@ -48,19 +49,22 @@ def run() -> None:
     # ----------------------------------------------------------
     # Step 1 — Load active sources from DB
     # ----------------------------------------------------------
-    # TODO: Step 1 — replace stub with DB query: Source.filter_by(is_active=True)
-    sources = []  # stub — will be populated from DB
+    with get_db() as db:
+        sources = db.query(Source).filter_by(is_active=True).all()
+        # Detach from session so we can use source objects after the block
+        db.expunge_all()
+
     log.info("Loaded %d active sources", len(sources))
 
     # ----------------------------------------------------------
-    # Step 2 — Ingest each source
+    # Step 2 — Ingest each source → persist raw articles to DB
     # ----------------------------------------------------------
-    ingested_articles = []   # list of raw ArticleData dicts
-    failed_sources = []      # (source_name, error_message)
+    failed_sources = []   # (source_name, error_message)
+    ingested_count = 0
 
     for source in sources:
         try:
-            if source.type == "youtube":   # TODO: Step 2 — use SourceType enum; source fields come from DB record
+            if source.type == SourceType.youtube:
                 ingester = YouTubeIngester(run_at=run_at)
             else:
                 ingester = BlogIngester(run_at=run_at)
@@ -68,21 +72,46 @@ def run() -> None:
             entries = ingester.fetch(source.url)
             articles = ingester.parse(entries)
 
-            # TODO: Step 2 — deduplicate by URL against DB before appending
-            ingested_articles.extend(articles)
+            new_count = 0
+            with get_db() as db:
+                for article_data in articles:
+                    # Deduplicate by URL — skip if already in DB
+                    exists = db.query(Article).filter_by(url=article_data["url"]).first()
+                    if exists:
+                        continue
 
-            # TODO: Step 2 — update source.last_fetched_at in DB
-            log.info("Ingested %d articles from %s", len(articles), source.name)
+                    db.add(Article(
+                        source_id=source.id,
+                        title=article_data["title"],
+                        url=article_data["url"],
+                        raw_content=article_data["raw_content"],
+                        published_at=article_data["published_at"],
+                        scraped_at=run_at,
+                        processing_status=ProcessingStatus.fetched,
+                    ))
+                    new_count += 1
+
+                # Update last_fetched_at on the source
+                db.query(Source).filter_by(id=source.id).update(
+                    {"last_fetched_at": run_at}
+                )
+
+            ingested_count += new_count
+            log.info("Ingested %d new articles from %s", new_count, source.name)
 
         except Exception as exc:
             log.error("Ingestion failed for source '%s': %s", source.name, exc)
             failed_sources.append((source.name, str(exc)))
 
-            # TODO: Step 2 — increment source.failure_count and store source.last_error in DB
+            with get_db() as db:
+                db.query(Source).filter_by(id=source.id).update({
+                    "failure_count": Source.failure_count + 1,
+                    "last_error": str(exc),
+                })
 
     log.info(
-        "Ingestion complete: %d articles from %d/%d sources (%d failed)",
-        len(ingested_articles),
+        "Ingestion complete: %d new articles from %d/%d sources (%d failed)",
+        ingested_count,
         len(sources) - len(failed_sources),
         len(sources),
         len(failed_sources),
@@ -91,51 +120,87 @@ def run() -> None:
     # ----------------------------------------------------------
     # Step 3 — Clean each fetched article
     # ----------------------------------------------------------
-    # TODO: Step 3 — query DB for articles WHERE processing_status = fetched; write cleaned_content + token_count back to DB
-    cleaned_articles = []   # will hold (article_db_record, cleaned_content, token_count)
+    cleaned_count = 0
 
-    for article in ingested_articles:
+    with get_db() as db:
+        fetched_articles = (
+            db.query(Article)
+            .filter_by(processing_status=ProcessingStatus.fetched)
+            .all()
+        )
+
+    for article in fetched_articles:
         try:
-            source_type = "youtube" if "youtube.com" in article["url"] else "blog"
-            cleaned_content, token_count = clean(article["raw_content"], source_type=source_type)
+            source_type = "youtube" if article.source_id and _is_youtube(article.url) else "blog"
+            cleaned_content, token_count = clean(article.raw_content, source_type=source_type)
+            content_hash = hashlib.sha256(cleaned_content.encode()).hexdigest()
 
-            cleaned_articles.append({
-                "title":           article["title"],
-                "url":             article["url"],
-                "source_name":     article.get("source_name", "Unknown"),
-                "cleaned_content": cleaned_content,
-                "token_count":     token_count,
-            })
-            log.debug("Cleaned '%s' → %d chars, ~%d tokens", article["title"], len(cleaned_content), token_count)
+            with get_db() as db:
+                db.query(Article).filter_by(id=article.id).update({
+                    "cleaned_content": cleaned_content,
+                    "token_count": token_count,
+                    "content_hash": content_hash,
+                    "processing_status": ProcessingStatus.cleaned,
+                })
+
+            cleaned_count += 1
+            log.debug("Cleaned '%s' → %d chars, ~%d tokens", article.title, len(cleaned_content), token_count)
 
         except Exception as exc:
-            log.error("Cleaning failed for '%s': %s", article.get("title"), exc)
+            log.error("Cleaning failed for '%s': %s", article.title, exc)
+            with get_db() as db:
+                db.query(Article).filter_by(id=article.id).update({
+                    "processing_status": ProcessingStatus.failed,
+                    "processing_error": str(exc),
+                })
 
-    log.info("Cleaning complete: %d/%d articles cleaned", len(cleaned_articles), len(ingested_articles))
+    log.info("Cleaning complete: %d/%d articles cleaned", cleaned_count, len(fetched_articles))
 
     # ----------------------------------------------------------
-    # Step 4 — Summarize each cleaned article (Step 1 LLM)
+    # Step 4 — Summarize each cleaned article (LLM Step 1)
     # ----------------------------------------------------------
     summary_inputs: list[ArticleSummaryInput] = []
     summaries: list[str] = []
 
+    with get_db() as db:
+        cleaned_articles = (
+            db.query(Article)
+            .filter_by(processing_status=ProcessingStatus.cleaned)
+            .all()
+        )
+        db.expunge_all()
+
     for article in cleaned_articles:
         try:
             inp = ArticleSummaryInput(
-                title=article["title"],
-                url=article["url"],
-                source_name=article["source_name"],
-                cleaned_content=article["cleaned_content"],
-                token_count=article["token_count"],
+                title=article.title,
+                url=article.url,
+                source_name=_source_label(article),
+                cleaned_content=article.cleaned_content,
+                token_count=article.token_count or 0,
             )
             summary = summarize_article(inp, llm_summarizer)
-            # TODO: Step 4 — persist summary + llm.model back to DB article record
+
+            with get_db() as db:
+                db.query(Article).filter_by(id=article.id).update({
+                    "summary": summary,
+                    "summary_model": llm_summarizer.model,
+                    "processing_status": ProcessingStatus.summarized,
+                })
+
             summary_inputs.append(inp)
             summaries.append(summary)
-            log.debug("Summarized '%s' → %d chars", article["title"], len(summary))
+            log.debug("Summarized '%s' → %d chars", article.title, len(summary))
+
         except Exception as exc:
-            log.error("Summarization failed for '%s': %s", article.get("title"), exc)
-            # TODO: Step 4 — increment article_record.retry_count and store last_error in DB
+            log.error("Summarization failed for '%s': %s", article.title, exc)
+            with get_db() as db:
+                db.query(Article).filter_by(id=article.id).update({
+                    "processing_status": ProcessingStatus.failed,
+                    "processing_error": str(exc),
+                    "retry_count": Article.retry_count + 1,
+                    "last_retry_at": run_at,
+                })
 
     log.info("Summarization complete: %d/%d articles summarized", len(summaries), len(cleaned_articles))
 
@@ -144,16 +209,33 @@ def run() -> None:
         return
 
     # ----------------------------------------------------------
-    # Step 5 + 6 — Assemble digest (Step 2 LLM) + convert to HTML
+    # Step 5 + 6 — Assemble digest (LLM Step 2) + convert to HTML
     # ----------------------------------------------------------
     try:
-        digest = generate_digest(summary_inputs, summaries, llm_assembler)
-        # TODO: Step 5 — persist digest record to DB (markdown, html, model_used, prompt_version)
-        # TODO: Step 5 — mark all included articles as included_in_digest in DB
+        digest_result = generate_digest(summary_inputs, summaries, llm_assembler)
+
+        with get_db() as db:
+            digest = DailyDigest(
+                digest_date=date.today(),
+                markdown_content=digest_result.markdown_content,
+                html_content=digest_result.html_content,
+                prompt_version=digest_result.prompt_version,
+                model_used=digest_result.model_used,
+                article_count=digest_result.article_count,
+            )
+            db.add(digest)
+
+            # Mark all summarized articles as included in this digest
+            db.query(Article).filter(
+                Article.processing_status == ProcessingStatus.summarized
+            ).update({"processing_status": ProcessingStatus.included_in_digest})
+
         log.info(
             "Digest assembled: %d articles included (model=%s)",
-            digest.article_count, digest.model_used,
+            digest_result.article_count,
+            digest_result.model_used,
         )
+
     except Exception as exc:
         log.error("Digest assembly failed: %s", exc)
         return
@@ -169,16 +251,27 @@ def run() -> None:
     _log_summary(
         sources=sources,
         failed_sources=failed_sources,
-        ingested=ingested_articles,
-        cleaned=cleaned_articles,
-        summarized=summaries,
-        digest_articles=digest.article_count,
+        ingested=ingested_count,
+        cleaned=cleaned_count,
+        summarized=len(summaries),
+        digest_articles=digest_result.article_count,
     )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _is_youtube(url: str) -> bool:
+    return "youtube.com" in url or "youtu.be" in url
+
+
+def _source_label(article: Article) -> str:
+    """Returns a human-readable source label for the digest prompt."""
+    if _is_youtube(article.url):
+        return f"{article.title} (YouTube)"
+    return article.title
+
 
 def _build_status_footer(sources: list, failed_sources: list[tuple]) -> str:
     """Builds the status footer included at the bottom of every digest email."""
@@ -192,9 +285,9 @@ def _build_status_footer(sources: list, failed_sources: list[tuple]) -> str:
 def _log_summary(
     sources: list,
     failed_sources: list[tuple],
-    ingested: list,
-    cleaned: list,
-    summarized: list,
+    ingested: int,
+    cleaned: int,
+    summarized: int,
     digest_articles: int,
 ) -> None:
     """Logs a structured end-of-run pipeline summary."""
@@ -203,8 +296,8 @@ def _log_summary(
         "articles: %d ingested / %d cleaned / %d summarized / %d in digest",
         len(sources) - len(failed_sources),
         len(failed_sources),
-        len(ingested),
-        len(cleaned),
-        len(summarized),
+        ingested,
+        cleaned,
+        summarized,
         digest_articles,
     )
