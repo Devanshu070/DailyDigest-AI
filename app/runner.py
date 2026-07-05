@@ -28,8 +28,7 @@ from app.llm import llm_summarizer, llm_assembler
 from app.digest.summarizer import summarize_article
 from app.digest.models import ArticleSummaryInput
 from app.digest.assembler import generate_digest
-
-# TODO: Import email sender (app/email/sender.py) once built
+from app.email.sender import send_digest
 
 log = logging.getLogger(__name__)
 
@@ -243,7 +242,18 @@ def run() -> None:
     # ----------------------------------------------------------
     # Step 7 — Send email
     # ----------------------------------------------------------
-    # TODO: Step 7 — call send_digest() with HTML content + subject + status footer; update digest.sent_at in DB
+    status_footer = _build_status_footer(sources, failed_sources)
+    sent = send_digest(
+        html_content=digest_result.html_content,
+        digest_date=date.today(),
+        status_footer=status_footer,
+    )
+
+    if sent:
+        with get_db() as db:
+            db.query(DailyDigest).filter_by(
+                digest_date=date.today()
+            ).update({"sent_at": datetime.now(timezone.utc)})
 
     # ----------------------------------------------------------
     # Step 8 — Pipeline summary log
