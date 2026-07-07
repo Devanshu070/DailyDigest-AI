@@ -127,6 +127,7 @@ def run() -> None:
             .filter_by(processing_status=ProcessingStatus.fetched)
             .all()
         )
+        db.expunge_all()
 
     for article in fetched_articles:
         try:

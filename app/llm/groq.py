@@ -17,7 +17,7 @@ from app.llm.base import BaseLLMProvider, LLMError
 log = logging.getLogger(__name__)
 
 _DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-_MAX_TOKENS = 2048
+_MAX_TOKENS = 4096
 
 
 class GroqProvider(BaseLLMProvider):
@@ -33,10 +33,12 @@ class GroqProvider(BaseLLMProvider):
     """
 
     def __init__(self, model: str | None = None):
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
+        from app.config import settings
+        api_key = settings.groq_api_key
+        
+        if not api_key or api_key == "your_groq_api_key_here":
             raise LLMError(
-                "GROQ_API_KEY is not set in the environment. "
+                "GROQ_API_KEY is missing or invalid in your .env file."
             )
         self.model = model or os.environ.get("GROQ_MODEL", _DEFAULT_MODEL)
 
