@@ -19,6 +19,8 @@ import hashlib
 import logging
 from datetime import date, datetime, timezone
 
+from app.config import settings
+
 from app.database import get_db
 from app.models import Article, DailyDigest, ProcessingStatus, Source, SourceType
 from app.processing.cleaner import clean
@@ -42,8 +44,19 @@ def run() -> None:
       - A single article failing summarization is skipped, not fatal.
       - Email failure is logged but does not raise.
     """
-    run_at = datetime.now(timezone.utc)
-    log.info("Pipeline started at %s", run_at.isoformat())
+    now = datetime.now(timezone.utc)
+
+    # Snap the run time to the most recent target hour.
+    # E.g., if cron is scheduled for 06:00 but fires at 06:03, this snaps to 06:00 exactly,
+    # ensuring the ingestion window is always a clean [06:00 yesterday → 06:00 today].
+    run_at = now.replace(
+        hour=settings.pipeline_run_hour_utc,
+        minute=settings.pipeline_run_minute_utc,
+        second=0,
+        microsecond=0
+    )
+
+    log.info("Pipeline started (now=%s, snapped window end=%s)", now.isoformat(), run_at.isoformat())
 
     # ----------------------------------------------------------
     # Step 1 — Load active sources from DB
