@@ -22,7 +22,7 @@ Designed to run on a daily cron schedule (e.g. Render).
 |-------------|-----------------------------------|
 | Language    | Python 3.12+                      |
 | Database    | PostgreSQL via SQLAlchemy + Alembic |
-| LLM         | Anthropic / OpenAI (swappable)    |
+| LLM         | Groq (Llama 4 Scout + GPT-OSS, swappable) |
 | Email       | Resend                            |
 | Package mgr | [uv](https://docs.astral.sh/uv/)  |
 | Local DB    | Docker Compose                    |
@@ -104,6 +104,7 @@ Edit `app/prompts/user_interests.md` to describe your interests. This file is th
 - [`docs/architecture_final.md`](docs/architecture_final.md) — System architecture diagrams (ER, sequence, class, state machine)
 - [`docs/dev_architecture.md`](docs/dev_architecture.md) — Developer reference: modules, pipeline, invariants
 - [`docs/example_pipeline.md`](docs/example_pipeline.md) — End-to-end worked example with sample inputs/outputs
+- [`docs/data_flow.md`](docs/data_flow.md) — Step-by-step data flow through the pipeline
 
 ---
 
