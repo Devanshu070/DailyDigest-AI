@@ -8,8 +8,8 @@ A personal AI-powered news aggregator that ingests content from YouTube channels
 
 1. **Ingests** articles from YouTube (via RSS) and blog feeds (HTML scraping)
 2. **Cleans** raw content and removes boilerplate
-3. **Summarizes** each article independently — content-agnostic, no user context at this stage
-4. **Assembles** a personalized digest using your interest profile (`app/prompts/user_interests.md`)
+3. **Summarizes** each article independently using an LLM — content-agnostic, no user context at this stage
+4. **Assembles** a personalized digest: a second, larger LLM reads all the per-article summaries alongside your interest profile (`app/prompts/user_interests.md`) and acts as a personal research assistant — filtering out low-signal noise, merging duplicate coverage, and writing a curated briefing tailored specifically to you
 5. **Emails** the digest as a formatted HTML email via [Resend](https://resend.com)
 
 Designed to run on a daily cron schedule (e.g. Render).
@@ -95,7 +95,16 @@ uv run python main.py
 
 ## Personalization
 
-Edit `app/prompts/user_interests.md` to describe your interests. This file is the sole input to the digest assembly step — the LLM uses it to decide which articles to include, skip, and how to frame each snippet.
+There are two files you should edit to make the digest your own:
+
+### 1. `scripts/seed_sources.py` — Your content sources
+This script populates the database with the YouTube channels and blog RSS feeds you want to follow. Edit the list of sources at the top of the file, then re-run it:
+```bash
+uv run python scripts/seed_sources.py
+```
+
+### 2. `app/prompts/user_interests.md` — Your interest profile
+This is the most important file. It is the sole input to the digest assembly step — the LLM uses it to decide which articles to include, which to skip, how to merge overlapping coverage, and how to frame each snippet. Write it as if you are briefing a personal research assistant.
 
 ---
 
