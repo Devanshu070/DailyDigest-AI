@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     # Groq
     groq_api_key: str
 
+    # Resend — email delivery
+    resend_api_key: str
+
+    # Digest delivery
+    # All recipient emails live here — edit this to change who gets the digest.
+    # For multiple recipients in the future, this could become a DB table.
+    digest_recipient_email: str
+
     @property
     def sqlalchemy_database_url(self) -> str:
         """
