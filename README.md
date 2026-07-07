@@ -93,6 +93,35 @@ uv run python main.py
 
 ---
 
+## Automation (GitHub Actions)
+
+The pipeline runs automatically via GitHub Actions every day at **06:00 UTC (11:30 AM IST)**.
+
+### Changing the delivery time
+Edit the cron expression in [`.github/workflows/daily_digest.yml`](.github/workflows/daily_digest.yml):
+```yaml
+schedule:
+  - cron: "0 6 * * *"  # ← change this line
+```
+Use [crontab.guru](https://crontab.guru) to build your expression. Times are always in UTC.
+
+### Required GitHub Secrets
+Go to **Settings → Secrets and variables → Actions** in your GitHub repo and add:
+
+| Secret | Description |
+|--------|-------------|
+| `DATABASE_URL` | Your hosted PostgreSQL URL (Supabase / Neon / Railway) |
+| `GROQ_API_KEY` | Your Groq API key |
+| `RESEND_API_KEY` | Your Resend API key |
+| `DIGEST_RECIPIENT_EMAIL` | The email address to deliver the digest to |
+
+> **Note:** The `DATABASE_URL` must point to a cloud-hosted PostgreSQL instance, not `localhost`. GitHub Actions runners cannot reach your local Docker database.
+
+### Manual runs
+You can also trigger the pipeline on-demand from the **Actions** tab on GitHub without waiting for the scheduled time.
+
+---
+
 ## Personalization
 
 There are two files you should edit to make the digest your own:

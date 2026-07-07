@@ -5,7 +5,23 @@ Reads from environment variables / .env file.
 All settings are validated at startup — a missing required var raises immediately.
 """
 
+import re
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _get_cron_part(index: int, fallback: int) -> int:
+    """Dynamically extracts a time part from the GitHub Actions cron schedule (0=minute, 1=hour)."""
+    workflow_path = Path(__file__).parent.parent / ".github/workflows/daily_digest.yml"
+    if workflow_path.exists():
+        content = workflow_path.read_text(encoding="utf-8")
+        match = re.search(r"cron:\s*[\"']([^\"']+)[\"']", content)
+        if match:
+            cron_expr = match.group(1)
+            parts = cron_expr.split()
+            if len(parts) > index and parts[index].isdigit():
+                return int(parts[index])
+    return fallback
 
 
 class Settings(BaseSettings):
@@ -15,6 +31,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    # Scheduling
+    # Extracted directly from the GitHub Actions cron file so it stays perfectly in sync!
+    pipeline_run_hour_utc: int = _get_cron_part(index=1, fallback=6)
+    pipeline_run_minute_utc: int = _get_cron_part(index=0, fallback=0)
 
     # Database
     database_url: str
