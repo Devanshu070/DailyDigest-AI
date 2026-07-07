@@ -228,15 +228,27 @@ def run() -> None:
         digest_result = generate_digest(summary_inputs, summaries, llm_assembler)
 
         with get_db() as db:
-            digest = DailyDigest(
-                digest_date=date.today(),
-                markdown_content=digest_result.markdown_content,
-                html_content=digest_result.html_content,
-                prompt_version=digest_result.prompt_version,
-                model_used=digest_result.model_used,
-                article_count=digest_result.article_count,
-            )
-            db.add(digest)
+            today = run_at.date()
+            existing = db.query(DailyDigest).filter_by(digest_date=today).first()
+            if existing:
+                # Already ran today — overwrite with the latest result
+                existing.markdown_content = digest_result.markdown_content
+                existing.html_content = digest_result.html_content
+                existing.prompt_version = digest_result.prompt_version
+                existing.model_used = digest_result.model_used
+                existing.article_count = digest_result.article_count
+                existing.sent_at = None  # Reset so email is re-sent
+                log.info("Digest for %s already existed — updated in place.", today)
+            else:
+                digest = DailyDigest(
+                    digest_date=today,
+                    markdown_content=digest_result.markdown_content,
+                    html_content=digest_result.html_content,
+                    prompt_version=digest_result.prompt_version,
+                    model_used=digest_result.model_used,
+                    article_count=digest_result.article_count,
+                )
+                db.add(digest)
 
             # Mark all summarized articles as included in this digest
             db.query(Article).filter(
