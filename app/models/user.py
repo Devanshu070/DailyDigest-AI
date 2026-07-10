@@ -1,0 +1,65 @@
+"""
+app/models/user.py — User model.
+
+A User is a subscriber of DailyDigest.
+- interests_md: their personal interest profile (used to personalize the digest)
+- digest_time:  daily delivery time in UTC (e.g. time(6, 0) = 06:00 UTC)
+- last_digest_at: when we last sent them a digest (used to compute the window + skip guard)
+- source_ids: PostgreSQL UUID array — the sources this user subscribes to.
+              Stored directly on the user row (no junction table needed).
+              The runner queries: Source WHERE id IN user.source_ids
+"""
+
+import uuid
+from datetime import datetime, time
+
+from sqlalchemy import Boolean, DateTime, String, Text, Time
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+from app.models.mixins import TimestampMixin
+
+
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+
+    # Inline markdown — this user's personal interest profile.
+    # Used by the digest assembler to decide what to include / skip.
+    interests_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    # Daily digest time in UTC (e.g., time(6, 0) = 06:00 UTC = 11:30 IST).
+    # The cron runs every few hours; the runner checks if this time has passed
+    # and the user hasn't received a digest in the last 24h.
+    digest_time: Mapped[time] = mapped_column(
+        Time(timezone=False), nullable=False, default=time(6, 0)
+    )
+
+    # When we last successfully sent a digest to this user.
+    # Used to compute the ingestion window: [last_digest_at → today's digest_time]
+    # and to enforce the 24h skip guard.
+    # None = first-ever run → use (digest_time - 24h) as window start.
+    last_digest_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # PostgreSQL UUID array — list of source IDs this user subscribes to.
+    # No junction table needed: we only ever query "sources for user X", never the reverse.
+    # Usage in runner: db.query(Source).filter(Source.id.in_(user.source_ids))
+    source_ids: Mapped[list] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
+    )
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    def __repr__(self) -> str:
+        return (
+            f"<User email={self.email!r} "
+            f"digest_time={self.digest_time} "
+            f"sources={len(self.source_ids or [])}>"
+        )
