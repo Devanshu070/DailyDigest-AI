@@ -2,16 +2,23 @@ name: Daily Digest
 
 on:
   schedule:
-    # Runs every day at 06:00 UTC (11:30 AM IST).
-    # To change the time, edit the cron expression below.
+    # Runs every 8 hours so the runner can serve users with different digest times.
+    # Each user's digest_time field controls when they actually receive their email.
     # Use https://crontab.guru to build your expression.
-    - cron: "0 6 * * *"
+    - cron: "0 */8 * * *"
   workflow_dispatch: # Allow manual runs from the GitHub Actions UI
 
 jobs:
   send-digest:
     name: Run Pipeline & Send Email
     runs-on: ubuntu-latest
+
+    # Shared env vars available to every step
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
 
     steps:
       - name: Checkout code
@@ -28,26 +35,36 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # nick-fields/retry handles Neon cold-start timeouts cleanly.
+      # Each db step retries up to 3 times with a 5s pause between attempts.
       - name: Run database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
-        run: uv run alembic upgrade head
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 5
+          timeout_minutes: 3
+          command: uv run alembic upgrade head
 
       - name: Seed database sources
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
-        run: uv run python scripts/seed_sources.py
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 5
+          timeout_minutes: 3
+          command: uv run python scripts/seed_sources.py
+
+      - name: Seed default user
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 5
+          timeout_minutes: 3
+          command: uv run python scripts/seed_user.py
 
       - name: Run DailyDigest pipeline
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
-        run: uv run python main.py
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 3
+          retry_wait_seconds: 5
+          timeout_minutes: 10
+          command: uv run python main.py
