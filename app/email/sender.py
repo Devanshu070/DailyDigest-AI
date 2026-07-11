@@ -27,21 +27,26 @@ def send_digest(
     html_content: str,
     digest_date: date,
     status_footer: str,
+    recipient_email: str | None = None,
 ) -> bool:
     """
     Sends the daily digest email via Resend.
 
     Args:
-        html_content:  The full HTML body of the digest.
-        digest_date:   The date of the digest run (used in the subject line).
-        status_footer: Plain-text summary of source success/failure counts,
-                       appended below the digest as a <footer> block.
+        html_content:     The full HTML body of the digest.
+        digest_date:      The date of the digest run (used in the subject line).
+        status_footer:    Plain-text summary of source success/failure counts,
+                          appended below the digest as a <footer> block.
+        recipient_email:  Who to send the email to. Defaults to
+                          settings.digest_recipient_email if not provided.
 
     Returns:
         True if the email was sent successfully, False otherwise.
         Never raises — failures are logged and the pipeline continues.
     """
     resend.api_key = settings.resend_api_key
+    to_address = recipient_email.strip() if recipient_email and recipient_email.strip() \
+        else settings.digest_recipient_email.strip()
 
     subject = f"Your AI Digest — {digest_date.strftime('%B %d, %Y')}"
 
@@ -72,13 +77,13 @@ def send_digest(
     try:
         response = resend.Emails.send({
             "from": SENDER_ADDRESS,
-            "to": [settings.digest_recipient_email],
+            "to": [to_address],
             "subject": subject,
             "html": full_html,
         })
         log.info(
             "Digest email sent to %s (id=%s)",
-            settings.digest_recipient_email,
+            to_address,
             response.get("id"),
         )
         return True
