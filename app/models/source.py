@@ -39,6 +39,12 @@ class Source(TimestampMixin, Base):
     last_fetched_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Articles published BEFORE this time are already in the DB.
+    # The ingestion engine only fetches newer articles.
+    # This field is updated automatically by app/runner.py after a successful fetch.
+    fetched_till: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     fetch_interval_minutes: Mapped[int] = mapped_column(
         Integer, default=1440, nullable=False
     )

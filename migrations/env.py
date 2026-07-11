@@ -29,6 +29,7 @@ from app.models.base import Base
 import app.models.source   # noqa: F401
 import app.models.article  # noqa: F401
 import app.models.digest   # noqa: F401
+import app.models.user     # noqa: F401
 
 target_metadata = Base.metadata
 
