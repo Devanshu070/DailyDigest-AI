@@ -32,8 +32,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Scheduling
-    # Extracted directly from the GitHub Actions cron file so it stays perfectly in sync!
+    # Default digest time — used by seed_user.py to set the initial digest_time
+    # for the default user. The runner reads digest_time from each User row in the DB.
+    # Falls back to 6:00 UTC if the cron expression uses a step pattern (e.g. */4).
     pipeline_run_hour_utc: int = _get_cron_part(index=1, fallback=6)
     pipeline_run_minute_utc: int = _get_cron_part(index=0, fallback=0)
 
