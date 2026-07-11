@@ -33,6 +33,16 @@ INITIAL_SOURCES = [
         "type": SourceType.youtube,
         "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCZHmQk67mSJgfCCTn7xBfew",
     },
+    {
+        "name": "Fireship",
+        "type": SourceType.youtube,
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsBjURrPoezykLs9EqgamOA",
+    },
+    {
+        "name": "ByteMonk",
+        "type": SourceType.youtube,
+        "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCzCsyvyrq38R6TnztEzOmgg",
+    },
     # ── Blogs / Newsletters ────────────────────────────────────────────────
     {
         "name": "OpenAI Blog",
@@ -42,7 +52,7 @@ INITIAL_SOURCES = [
     {
         "name": "Anthropic Blog",
         "type": SourceType.blog,
-        "url": "https://www.anthropic.com/rss.xml",
+        "url": "https://rsshub.bestblogs.dev/anthropic/news",
     },
     {
         "name": "Google DeepMind Blog",
