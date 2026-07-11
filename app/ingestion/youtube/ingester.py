@@ -32,9 +32,9 @@ class YouTubeIngester(BaseIngester):
       2. Falls back to the RSS description if no English transcript is available.
     """
 
-    def __init__(self, run_at: datetime | None = None, window_hours: int = 24):
+    def __init__(self, run_at: datetime | None = None, window_hours: int = 24, window_start: datetime | None = None):
         self.run_at: datetime = run_at or datetime.now(timezone.utc)
-        self.window_start: datetime = self.run_at - timedelta(hours=window_hours)
+        self.window_start: datetime = window_start or (self.run_at - timedelta(hours=window_hours))
 
     def resolve_channel_id(self, source_url: str) -> str:
         """Resolves any recognised YouTube identifier to a raw Channel ID (UC...)."""
