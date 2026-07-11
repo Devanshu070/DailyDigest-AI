@@ -1,6 +1,6 @@
 # DailyDigest-AI
 
-A personal AI-powered news aggregator that ingests content from YouTube channels and blog RSS feeds, summarizes each article with an LLM, assembles a personalized daily digest, and delivers it to your inbox every morning.
+A multi-user AI-powered news aggregator that ingests content from YouTube channels and blog RSS feeds, summarizes each article with an LLM, assembles personalized daily digests, and delivers them to your subscribers' inboxes every morning.
 
 ---
 
@@ -9,10 +9,10 @@ A personal AI-powered news aggregator that ingests content from YouTube channels
 1. **Ingests** articles from YouTube (via RSS) and blog feeds (HTML scraping)
 2. **Cleans** raw content and removes boilerplate
 3. **Summarizes** each article independently using an LLM — content-agnostic, no user context at this stage
-4. **Assembles** a personalized digest: a second, larger LLM reads all the per-article summaries alongside your interest profile (`app/prompts/user_interests.md`) and acts as a personal research assistant — filtering out low-signal noise, merging duplicate coverage, and writing a curated briefing tailored specifically to you
+4. **Assembles** a personalized digest for each user: a second, larger LLM reads all the per-article summaries alongside their interest profile and acts as a personal research assistant — filtering out low-signal noise, merging duplicate coverage, and writing a curated briefing tailored specifically to them
 5. **Emails** the digest as a formatted HTML email via [Resend](https://resend.com)
 
-Designed to run on a daily cron schedule (e.g. Render).
+Designed to run on a recurring cron schedule, it automatically manages rolling 24-hour ingestion windows for each subscriber.
 
 ---
 
@@ -85,23 +85,33 @@ uv run alembic upgrade head
 uv run python scripts/seed_sources.py
 ```
 
-### 6. Run the pipeline
+### 6. Seed user profile
 
 ```bash
+uv run python scripts/seed_user.py
+```
+
+### 7. Run the pipeline
+
+```bash
+# To run the pipeline for all users who are currently due for their digest:
 uv run python main.py
+
+# To force a manual run for a specific user instantly (bypassing the schedule):
+uv run python main.py --manual --email your@email.com
 ```
 
 ---
 
 ## Automation (GitHub Actions)
 
-The pipeline runs automatically via GitHub Actions every day at **06:00 UTC (11:30 AM IST)**.
+The pipeline runs automatically via GitHub Actions **every 8 hours**. During each run, it checks the `users` table and processes a digest for anyone whose personal `digest_time` has recently passed.
 
-### Changing the delivery time
-Edit the cron expression in [`.github/workflows/daily_digest.yml`](.github/workflows/daily_digest.yml):
+### Changing the action frequency
+By default it runs every 8 hours (`0 */8 * * *`). If you only have users in a specific timezone, you can adjust this frequency by editing [`.github/workflows/daily_digest.yml`](.github/workflows/daily_digest.yml):
 ```yaml
 schedule:
-  - cron: "0 6 * * *"  # ← change this line
+  - cron: "0 */8 * * *"  # ← change this line
 ```
 Use [crontab.guru](https://crontab.guru) to build your expression. Times are always in UTC.
 
@@ -122,18 +132,20 @@ You can also trigger the pipeline on-demand from the **Actions** tab on GitHub w
 
 ---
 
-## Personalization
+## Personalization & Multi-User
 
-There are two files you should edit to make the digest your own:
+DailyDigest-AI is now fully database-driven. To manage personalization, you add profiles to the `users` table:
 
-### 1. `scripts/seed_sources.py` — Your content sources
-This script populates the database with the YouTube channels and blog RSS feeds you want to follow. Edit the list of sources at the top of the file, then re-run it:
+### 1. `scripts/seed_user.py` — Create subscribers
+This script makes it incredibly easy to bootstrap your database user profile from your `.env` and `user_interests.md` files, and automatically subscribes you to all active sources.
 ```bash
-uv run python scripts/seed_sources.py
+uv run python scripts/seed_user.py --email user@example.com
 ```
 
-### 2. `app/prompts/user_interests.md` — Your interest profile
-This is the most important file. It is the sole input to the digest assembly step — the LLM uses it to decide which articles to include, which to skip, how to merge overlapping coverage, and how to frame each snippet. Write it as if you are briefing a personal research assistant.
+### 2. `users.interests_md` — Interest profile
+This database column is the sole input to the digest assembly step — the LLM uses it to decide which articles to include, which to skip, how to merge overlapping coverage, and how to frame each snippet. Write it as if you are briefing a personal research assistant.
+
+*(Note: If a user's `interests_md` is empty, the system falls back to the static `app/prompts/user_interests.md` file).*
 
 ---
 
