@@ -1,9 +1,9 @@
 """
 assembler.py — Step 2: Digest assembly from article summaries.
 
-Takes acallll per-article summaries (from summarizer.py), reads the user's
-interests from disk, and produces a personalized Markdown digest via a
-single LLM . Converts the output to HTML.
+Takes all per-article summaries (from summarizer.py), reads the user's
+interests (from DB or disk fallback), and produces a personalized Markdown
+digest via a single LLM call. Converts the output to HTML.
 """
 
 import logging
@@ -55,17 +55,18 @@ def generate_digest(
     articles: list[ArticleSummaryInput],
     summaries: list[str],
     llm: BaseLLMProvider,
+    interests_md: str | None = None,
 ) -> DigestResult:
     """
     Assembles a personalized daily digest from article summaries.
 
-    Reads user_interests.md from disk, builds one LLM prompt containing all
-    summaries, and returns the resulting Markdown + HTML digest.
-
     Args:
-        articles:  List of ArticleSummaryInput (for title/source/url context).
-        summaries: Corresponding summaries from Step 1 (same order).
-        llm:       The LLM provider to use.
+        articles:      List of ArticleSummaryInput (for title/source/url context).
+        summaries:     Corresponding summaries from Step 1 (same order).
+        llm:           The LLM provider to use.
+        interests_md:  The user's interest profile as a markdown string.
+                       If None, falls back to reading app/prompts/user_interests.md
+                       from disk (backward-compatible for single-user setups).
 
     Returns:
         DigestResult containing markdown_content, html_content, model_used,
@@ -81,8 +82,12 @@ def generate_digest(
             "must have the same length."
         )
 
+    # Use the passed-in interests if provided; else fall back to the static file
+    user_interests = interests_md.strip() if interests_md and interests_md.strip() \
+        else _load_user_interests()
+
     system_prompt = _DIGEST_SYSTEM_TEMPLATE.format(
-        user_interests=_load_user_interests()
+        user_interests=user_interests
     )
     user_prompt = _build_user_prompt(articles, summaries)
 
