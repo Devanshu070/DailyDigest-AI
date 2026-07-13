@@ -315,7 +315,7 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
     if not all_summaries:
         log.info("No articles in window for user %s — sending quiet-day email.", user.email)
         status_footer = _build_status_footer(sources, failed_sources)
-        send_digest(
+        sent = send_digest(
             html_content=(
                 "<h2>Nothing new today 🤫</h2>"
                 "<p>None of your subscribed sources published anything in the last 24 hours. "
@@ -325,6 +325,11 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
             status_footer=status_footer,
             recipient_email=user.email,
         )
+        # Stamp last_digest_at so the scheduler skips this user for the rest of the day.
+        if sent:
+            with get_db() as db:
+                db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
+            log.info("Quiet-day email sent to %s — last_digest_at updated.", user.email)
         return
 
     log.info("Assembling digest from %d article(s) for %s", len(all_summaries), user.email)
