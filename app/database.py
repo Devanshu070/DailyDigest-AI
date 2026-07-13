@@ -49,3 +49,23 @@ def get_db() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
+
+
+def get_db_session() -> Generator[Session, None, None]:
+    """
+    FastAPI dependency that yields a SQLAlchemy Session.
+
+    Use this with FastAPI's Depends() system:
+        db: Session = Depends(get_db_session)
+
+    The existing get_db() context manager is kept for the pipeline runner.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
