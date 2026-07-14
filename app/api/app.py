@@ -45,10 +45,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers (Phase 2) ──────────────────────────────────────────────────────────
-# from app.api.routes import health, sources, articles, digests, pipeline
-# app.include_router(health.router,   prefix="/api/v1")
-# app.include_router(sources.router,  prefix="/api/v1")
-# app.include_router(articles.router, prefix="/api/v1")
-# app.include_router(digests.router,  prefix="/api/v1")
-# app.include_router(pipeline.router, prefix="/api/v1")
+# ── Routers ────────────────────────────────────────────────────────────────────
+from app.api.routes import health, sources, articles, pipeline, users
+
+app.include_router(health.router,    prefix="/api/v1")
+app.include_router(users.router,     prefix="/api/v1")
+app.include_router(sources.router,   prefix="/api/v1")
+app.include_router(articles.router,  prefix="/api/v1")
+app.include_router(pipeline.router,  prefix="/api/v1")
