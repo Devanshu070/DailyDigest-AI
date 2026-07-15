@@ -14,6 +14,7 @@ from app.api.app import APP_VERSION
 from app.database import get_db_session
 from app.models import Source, User
 from app.schemas import HealthResponse, PipelineStatusResponse, SourceResponse
+from app.api.routes.users import get_or_create_user
 
 router = APIRouter(tags=["Health"])
 
@@ -40,9 +41,7 @@ def pipeline_status(
     ingestion status (last_fetched_at, fetched_till, failure_count) of every
     source they are subscribed to.
     """
-    user = db.query(User).filter_by(email=email, is_active=True).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{email}' not found")
+    user = get_or_create_user(email, db)
 
     # Fetch only the sources this user is subscribed to
     source_ids = user.source_ids or []
