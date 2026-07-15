@@ -1,8 +1,11 @@
 """
-app/email/sender.py — Email delivery via Resend.
+app/email/sender.py — Email delivery via Gmail SMTP.
 
-Sends the HTML digest to the configured recipient.
-Uses the Resend Python SDK (not SMTP).
+Sends the HTML digest to the configured recipient using Python's
+built-in smtplib with Gmail's SMTP relay (smtp.gmail.com:587 + STARTTLS).
+
+Requires a Gmail App Password (not your account password):
+  Google Account → Security → 2-Step Verification → App passwords
 
 Usage:
     from app.email.sender import send_digest
@@ -10,17 +13,17 @@ Usage:
 """
 
 import logging
+import smtplib
 from datetime import date
-
-import resend
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from app.config import settings
 
 log = logging.getLogger(__name__)
 
-# Sender address — must be verified in your Resend dashboard.
-# Resend provides onboarding@resend.dev for testing with verified domain accounts.
-SENDER_ADDRESS = "DailyDigest <onboarding@resend.dev>"
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
 
 
 def send_digest(
@@ -30,7 +33,7 @@ def send_digest(
     recipient_email: str | None = None,
 ) -> bool:
     """
-    Sends the daily digest email via Resend.
+    Sends the daily digest email via Gmail SMTP.
 
     Args:
         html_content:     The full HTML body of the digest.
@@ -44,13 +47,15 @@ def send_digest(
         True if the email was sent successfully, False otherwise.
         Never raises — failures are logged and the pipeline continues.
     """
-    resend.api_key = settings.resend_api_key
-    to_address = recipient_email.strip() if recipient_email and recipient_email.strip() \
+    to_address = (
+        recipient_email.strip()
+        if recipient_email and recipient_email.strip()
         else settings.digest_recipient_email.strip()
+    )
 
     subject = f"Your AI Digest — {digest_date.strftime('%B %d, %Y')}"
 
-    # Wrap digest HTML with a minimal outer shell and append the status footer
+    # Build the full HTML email body
     full_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -74,18 +79,21 @@ def send_digest(
 </body>
 </html>"""
 
+    # Compose the MIME message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = settings.gmail_sender
+    msg["To"]      = to_address
+    msg.attach(MIMEText(full_html, "html"))
+
     try:
-        response = resend.Emails.send({
-            "from": SENDER_ADDRESS,
-            "to": [to_address],
-            "subject": subject,
-            "html": full_html,
-        })
-        log.info(
-            "Digest email sent to %s (id=%s)",
-            to_address,
-            response.get("id"),
-        )
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.gmail_sender, settings.gmail_app_password)
+            server.sendmail(settings.gmail_sender, [to_address], msg.as_string())
+
+        log.info("Digest email sent to %s via Gmail SMTP", to_address)
         return True
 
     except Exception as exc:
