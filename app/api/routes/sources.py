@@ -16,18 +16,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db_session
 from app.models import Source, User
 from app.schemas import SourceCreateMany, SourceResponse
+from app.api.routes.users import get_or_create_user
 
 router = APIRouter(prefix="/sources", tags=["Sources"])
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def _get_user(email: str, db: Session) -> User:
-    """Fetch an active user by email or raise 404."""
-    user = db.query(User).filter_by(email=email, is_active=True).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{email}' not found")
-    return user
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -38,7 +29,7 @@ def list_user_sources(
     db: Session = Depends(get_db_session),
 ):
     """List sources that this user is subscribed to."""
-    user = _get_user(email, db)
+    user = get_or_create_user(email, db)
     source_ids = user.source_ids or []
     if not source_ids:
         return []
@@ -66,7 +57,7 @@ def create_and_subscribe(
         ]
     }
     """
-    user = _get_user(email, db)
+    user = get_or_create_user(email, db)
     subscribed_ids = set(user.source_ids or [])
     result = []
 
@@ -98,7 +89,7 @@ def unsubscribe_source(
     Unsubscribe the user from a source by removing it from their source_ids.
     The global source record in the sources table is NOT deleted.
     """
-    user = _get_user(email, db)
+    user = get_or_create_user(email, db)
 
     if source_id not in (user.source_ids or []):
         raise HTTPException(
