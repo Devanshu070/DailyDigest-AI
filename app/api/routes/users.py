@@ -6,21 +6,27 @@ PATCH /api/v1/users/me/digest-time     → Update daily delivery time
 PATCH /api/v1/users/me/interests       → Update Markdown interest prompt
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
 from app.models import User
 from app.schemas import UserDigestTimeUpdate, UserInterestsUpdate, UserResponse
 
+import logging
+
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-def _get_user(email: str, db: Session) -> User:
-    """Fetch an active user by email or raise 404."""
+def get_or_create_user(email: str, db: Session) -> User:
+    """Fetch an active user by email, or auto-create one on first login."""
     user = db.query(User).filter_by(email=email, is_active=True).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{email}' not found")
+        log.info("Auto-creating user for first-time login: %s", email)
+        user = User(email=email)
+        db.add(user)
+        db.flush()  # assigns the PK without committing the outer transaction
     return user
 
 
@@ -30,7 +36,7 @@ def get_user_profile(
     db: Session = Depends(get_db_session)
 ):
     """Get the user's current preferences (digest time, interests, etc)."""
-    return _get_user(email, db)
+    return get_or_create_user(email, db)
 
 
 @router.patch("/me/digest-time", response_model=UserResponse)
@@ -40,7 +46,7 @@ def update_digest_time(
     db: Session = Depends(get_db_session)
 ):
     """Update the UTC time when this user receives their daily digest."""
-    user = _get_user(email, db)
+    user = get_or_create_user(email, db)
     user.digest_time = body.digest_time
     db.flush()
     return user
@@ -53,7 +59,7 @@ def update_interests(
     db: Session = Depends(get_db_session)
 ):
     """Update the custom Markdown prompt used to personalize this user's digest."""
-    user = _get_user(email, db)
+    user = get_or_create_user(email, db)
     user.interests_md = body.interests_md
     db.flush()
     return user

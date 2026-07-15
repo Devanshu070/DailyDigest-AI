@@ -44,8 +44,9 @@ class Settings(BaseSettings):
     # Groq
     groq_api_key: str
 
-    # Resend — email delivery
-    resend_api_key: str
+    # Gmail SMTP — email delivery
+    gmail_sender: str       # your Gmail address, e.g. you@gmail.com
+    gmail_app_password: str # 16-char App Password (not your account password)
 
     # Digest delivery
     # All recipient emails live here — edit this to change who gets the digest.

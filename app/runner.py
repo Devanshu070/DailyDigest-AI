@@ -48,7 +48,14 @@ log = logging.getLogger(__name__)
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def run(manual: bool = False, target_email: str | None = None) -> None:
+from typing import Callable, Optional
+
+def run(
+    manual: bool = False,
+    target_email: str | None = None,
+    on_stage: Optional[Callable[[str, str], None]] = None,
+    on_email_ready: Optional[Callable[[str, str], None]] = None,
+) -> None:
     """
     Runs the DailyDigest pipeline.
 
@@ -59,7 +66,11 @@ def run(manual: bool = False, target_email: str | None = None) -> None:
                 digest_time has passed today and haven't received a digest yet.
         target_email: For manual runs, the specific user to generate a digest for.
                 Defaults to settings.digest_recipient_email.
+        on_stage: Optional callback(stage, message) for progress tracking.
+        on_email_ready: Optional callback(html, subject) called when email HTML is ready.
     """
+    _stage = on_stage or (lambda s, m="": None)
+
     now = datetime.now(timezone.utc)
     log.info("Pipeline started (mode=%s, now=%s)", "manual" if manual else "scheduled", now.isoformat())
 
@@ -82,12 +93,9 @@ def run(manual: bool = False, target_email: str | None = None) -> None:
 
     for user in users:
         if manual:
-            # Manual mode: always run, rolling window
             window_start = now - timedelta(hours=24)
             window_end = now
         else:
-            # Scheduled mode: skip if already received a digest in the past 24 hours.
-            # If last_digest_at is None (new user), always run.
             if user.last_digest_at and user.last_digest_at >= (now - timedelta(hours=24)):
                 log.info(
                     "User %s: already received digest %s ago — skipping.",
@@ -96,7 +104,6 @@ def run(manual: bool = False, target_email: str | None = None) -> None:
                 )
                 continue
 
-            # Window: from last digest up to user's scheduled digest_time today
             window_end = last_scheduled_digest_time(user.digest_time, now)
             window_start = window_end - timedelta(hours=24)
 
@@ -106,7 +113,7 @@ def run(manual: bool = False, target_email: str | None = None) -> None:
         )
 
         try:
-            _run_for_user(user, window_start, window_end)
+            _run_for_user(user, window_start, window_end, _stage, on_email_ready)
         except Exception as exc:
             log.error("Pipeline failed for user %s: %s", user.email, exc, exc_info=True)
 
@@ -115,7 +122,13 @@ def run(manual: bool = False, target_email: str | None = None) -> None:
 # Per-user pipeline
 # ---------------------------------------------------------------------------
 
-def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> None:
+def _run_for_user(
+    user: User,
+    window_start: datetime,
+    window_end: datetime,
+    on_stage: Callable[[str, str], None] = lambda s, m="": None,
+    on_email_ready: Optional[Callable[[str, str], None]] = None,
+) -> None:
     """Runs the full ingestion → digest → email pipeline for one user."""
 
     # ── Step 1: Load user's subscribed sources from DB ──────────────────────
@@ -124,6 +137,15 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
 
         if not source_ids:
             log.warning("User %s has no subscribed sources — skipping.", user.email)
+            on_stage("done", "No sources subscribed")
+            if on_email_ready:
+                on_email_ready(
+                    "<h2>No sources configured 📡</h2>"
+                    "<p>You have no sources subscribed yet. "
+                    "Go to the <a href='/sources'>Sources</a> page to add your first source, "
+                    "then run the pipeline again.</p>",
+                    "No sources configured",
+                )
             return
 
         sources = (
@@ -135,7 +157,8 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
 
     log.info("Loaded %d source(s) for %s", len(sources), user.email)
 
-    # ── Step 2: Ingest each source using fetched_till gap-fill ─────────────
+    # ── Step 2: Ingest each source ──────────────────────────────────────────
+    on_stage("fetching_articles", f"Fetching articles from {len(sources)} source(s)…")
     failed_sources: list[tuple[str, str]] = []
     ingested_count = 0
 
@@ -197,7 +220,8 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
     log.info("Ingestion complete: %d new articles, %d/%d sources ok",
              ingested_count, len(sources) - len(failed_sources), len(sources))
 
-    # ── Step 3: Clean newly-fetched articles from this user's sources ───────
+    # ── Step 3: Clean newly-fetched articles ────────────────────────────────
+    on_stage("cleaning", f"Cleaning & deduplicating {ingested_count} new article(s)…")
     cleaned_count = 0
     with get_db() as db:
         fetched_articles = (
@@ -238,6 +262,7 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
     log.info("Cleaning complete: %d/%d articles cleaned", cleaned_count, len(fetched_articles))
 
     # ── Step 4: Summarize cleaned articles from this user's sources ─────────
+    on_stage("summarizing", "Summarizing articles with AI…")
     with get_db() as db:
         cleaned_articles = (
             db.query(Article)
@@ -284,6 +309,7 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
     log.info("Summarization complete: %d/%d articles summarized",
              newly_summarized, len(cleaned_articles))
 
+    on_stage("assembling_digest", "Collecting summarized articles from window…")
     # ── Collect ALL summarized articles in the window (cache hits included) ─
     with get_db() as db:
         window_articles = (
@@ -314,18 +340,21 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
 
     if not all_summaries:
         log.info("No articles in window for user %s — sending quiet-day email.", user.email)
+        on_stage("sending_email", "Sending quiet-day email…")
+        quiet_html = (
+            "<h2>Nothing new today 🤫</h2>"
+            "<p>None of your subscribed sources published anything in the last 24 hours. "
+            "Check back tomorrow!</p>"
+        )
         status_footer = _build_status_footer(sources, failed_sources)
+        if on_email_ready:
+            on_email_ready(quiet_html, f"Quiet Day — {window_end.date()}")
         sent = send_digest(
-            html_content=(
-                "<h2>Nothing new today 🤫</h2>"
-                "<p>None of your subscribed sources published anything in the last 24 hours. "
-                "Check back tomorrow!</p>"
-            ),
+            html_content=quiet_html,
             digest_date=window_end.date(),
             status_footer=status_footer,
             recipient_email=user.email,
         )
-        # Stamp last_digest_at so the scheduler skips this user for the rest of the day.
         if sent:
             with get_db() as db:
                 db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
@@ -335,6 +364,7 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
     log.info("Assembling digest from %d article(s) for %s", len(all_summaries), user.email)
 
     # ── Step 5: Assemble personalized digest ────────────────────────────────
+    on_stage("assembling_digest", f"Assembling personalized digest from {len(all_summaries)} article(s)…")
     try:
         digest_result = generate_digest(
             all_inputs,
@@ -347,9 +377,12 @@ def _run_for_user(user: User, window_start: datetime, window_end: datetime) -> N
 
     except Exception as exc:
         log.error("Digest assembly failed for user %s: %s", user.email, exc)
-        return
+        raise  # let _run_pipeline_background catch it and call _run_state.fail()
 
     # ── Step 6: Send email → update last_digest_at ──────────────────────────
+    on_stage("sending_email", "Sending email…")
+    if on_email_ready:
+        on_email_ready(digest_result.html_content, f"Your DailyDigest for {window_end.date()}")
     status_footer = _build_status_footer(sources, failed_sources)
     sent = send_digest(
         html_content=digest_result.html_content,
@@ -395,3 +428,4 @@ def _build_status_footer(sources: list, failed_sources: list[tuple]) -> str:
         names = ", ".join(n for n, _ in failed_sources)
         return f"{ok} sources ingested successfully. {len(failed_sources)} failed: {names}"
     return f"{ok} sources ingested successfully."
+    
