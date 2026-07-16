@@ -53,6 +53,7 @@ class ArticleListItem(BaseModel):
     title: str
     source_id: uuid.UUID
     published_at: datetime
+    url: str
 
 
 class ArticleResponse(BaseModel):
