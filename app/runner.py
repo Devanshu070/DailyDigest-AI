@@ -5,16 +5,22 @@ Execution order:
   1. Determine run mode (scheduled vs manual)
   2. Load all active users from DB
   3. For each user — check if their digest is due:
-       scheduled: now >= today's digest_time AND last_digest_at < today's digest_time
+       scheduled: now >= today's digest_time AND last_scheduled_digest_at < today's digest_time
        manual:    always run
   4. For each due user:
-     a. Compute window: [last_digest_at → today's digest_time]  (scheduled)
-                        [now - 24h    → now               ]    (manual)
+     a. Compute window: [last_scheduled_digest_at → today's digest_time]  (scheduled)
+                        [now - 24h              → now               ]    (manual)
      b. For each subscribed source — fetch only the gap using fetched_till watermark
      c. Clean + summarize newly-fetched articles
      d. Collect ALL summarized articles in the window for this user's sources (cache hits)
      e. Assemble personalized digest using user.interests_md
-     f. Send email to user.email → update user.last_digest_at
+     f. Send email to user.email → update user.last_digest_at (always)
+                                  + update user.last_scheduled_digest_at (scheduled only)
+
+Timestamp semantics:
+  last_digest_at           — most recent email sent (scheduled OR manual). Read by the frontend.
+  last_scheduled_digest_at — most recent SCHEDULED email sent. Read ONLY by the skip guard
+                              to prevent double-delivery. Never updated by manual runs.
 
 Run modes:
   python main.py            → scheduled mode (snaps to each user's digest_time)
@@ -96,11 +102,14 @@ def run(
             window_start = now - timedelta(hours=24)
             window_end = now
         else:
-            if user.last_digest_at and user.last_digest_at >= (now - timedelta(hours=24)):
+            # Skip guard: only check the scheduler's own bookkeeping column.
+            # Manual runs do NOT update last_scheduled_digest_at, so they cannot
+            # accidentally suppress the next scheduled delivery.
+            if user.last_scheduled_digest_at and user.last_scheduled_digest_at >= (now - timedelta(hours=24)):
                 log.info(
-                    "User %s: already received digest %s ago — skipping.",
+                    "User %s: already received a scheduled digest %s ago — skipping.",
                     user.email,
-                    str(now - user.last_digest_at).split(".")[0],
+                    str(now - user.last_scheduled_digest_at).split(".")[0],
                 )
                 continue
 
@@ -113,7 +122,7 @@ def run(
         )
 
         try:
-            _run_for_user(user, window_start, window_end, _stage, on_email_ready)
+            _run_for_user(user, window_start, window_end, manual, _stage, on_email_ready)
         except Exception as exc:
             log.error("Pipeline failed for user %s: %s", user.email, exc, exc_info=True)
 
@@ -126,6 +135,7 @@ def _run_for_user(
     user: User,
     window_start: datetime,
     window_end: datetime,
+    manual: bool = False,
     on_stage: Callable[[str, str], None] = lambda s, m="": None,
     on_email_ready: Optional[Callable[[str, str], None]] = None,
 ) -> None:
@@ -356,9 +366,17 @@ def _run_for_user(
             recipient_email=user.email,
         )
         if sent:
+            update_fields: dict = {"last_digest_at": window_end}
+            if not manual:
+                # Only update the scheduler's bookkeeping column on scheduled runs
+                update_fields["last_scheduled_digest_at"] = window_end
             with get_db() as db:
-                db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
-            log.info("Quiet-day email sent to %s — last_digest_at updated.", user.email)
+                db.query(User).filter_by(id=user.id).update(update_fields)
+            log.info(
+                "Quiet-day email sent to %s — last_digest_at updated%s.",
+                user.email,
+                ", last_scheduled_digest_at updated" if not manual else "",
+            )
         return
 
     log.info("Assembling digest from %d article(s) for %s", len(all_summaries), user.email)
@@ -392,11 +410,17 @@ def _run_for_user(
     )
 
     if sent:
+        update_fields: dict = {"last_digest_at": window_end}
+        if not manual:
+            # Only update the scheduler's bookkeeping column on scheduled runs
+            update_fields["last_scheduled_digest_at"] = window_end
         with get_db() as db:
-            db.query(User).filter_by(id=user.id).update({
-                "last_digest_at": window_end,  # where the last digest window ended
-            })
-        log.info("Digest sent to %s — last_digest_at updated.", user.email)
+            db.query(User).filter_by(id=user.id).update(update_fields)
+        log.info(
+            "Digest sent to %s — last_digest_at updated%s.",
+            user.email,
+            ", last_scheduled_digest_at updated" if not manual else "",
+        )
 
     log.info(
         "Pipeline complete for %s | %d sources ok / %d failed | "

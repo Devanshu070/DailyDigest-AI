@@ -2,12 +2,16 @@
 app/models/user.py — User model.
 
 A User is a subscriber of DailyDigest.
-- interests_md: their personal interest profile (used to personalize the digest)
-- digest_time:  daily delivery time in UTC (e.g. time(6, 0) = 06:00 UTC)
-- last_digest_at: when we last sent them a digest (used to compute the window + skip guard)
-- source_ids: PostgreSQL UUID array — the sources this user subscribes to.
-              Stored directly on the user row (no junction table needed).
-              The runner queries: Source WHERE id IN user.source_ids
+- interests_md:             their personal interest profile (used to personalize the digest)
+- digest_time:              daily delivery time in UTC (e.g. time(6, 0) = 06:00 UTC)
+- last_digest_at:           timestamp of the most recent email sent (scheduled OR manual).
+                            Used by the frontend/API to display "last delivery" information.
+- last_scheduled_digest_at: timestamp of the last SCHEDULED run that successfully sent email.
+                            Used exclusively by the scheduler's skip guard to prevent
+                            double-delivery on the same day. Manual runs do NOT update this.
+- source_ids:               PostgreSQL UUID array — the sources this user subscribes to.
+                            Stored directly on the user row (no junction table needed).
+                            The runner queries: Source WHERE id IN user.source_ids
 """
 
 import uuid
@@ -40,11 +44,20 @@ class User(TimestampMixin, Base):
         Time(timezone=False), nullable=False, default=time(6, 0)
     )
 
-    # When we last successfully sent a digest to this user.
-    # Used to compute the ingestion window: [last_digest_at → today's digest_time]
-    # and to enforce the 24h skip guard.
-    # None = first-ever run → use (digest_time - 24h) as window start.
+    # UI-facing timestamp: when we last successfully sent a digest to this user
+    # (whether triggered by the scheduler or a manual API call).
+    # The frontend reads this to display "last delivery" information.
+    # None = no digest has ever been sent.
     last_digest_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Scheduler bookkeeping: when the scheduled pipeline last successfully sent email.
+    # The scheduler's skip guard reads ONLY this column to decide whether a user
+    # has already received their digest today. Manual runs do NOT update this field,
+    # so manual runs cannot accidentally suppress the next scheduled delivery.
+    # None = no scheduled digest has ever been sent.
+    last_scheduled_digest_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

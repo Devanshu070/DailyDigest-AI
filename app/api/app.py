@@ -45,6 +45,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Root Endpoint ──────────────────────────────────────────────────────────────
+@app.get("/", tags=["system"])
+async def root():
+    return {
+        "service": "DailyDigest-AI",
+        "status": "healthy",
+        "version": APP_VERSION,
+        "docs": "/docs",
+        "health": "/api/v1/health"
+    }
+
 # ── Routers ────────────────────────────────────────────────────────────────────
 from app.api.routes import health, sources, articles, pipeline, users
 
