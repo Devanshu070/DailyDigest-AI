@@ -25,7 +25,7 @@ export default function ArticlesPage() {
       const data = await getArticles(user.email, PAGE_SIZE, currentOffset);
       setArticles(prev => reset ? data : [...prev, ...data]);
       setHasMore(data.length === PAGE_SIZE);
-      if (!reset) setOffset(currentOffset + PAGE_SIZE);
+      setOffset(currentOffset + data.length);
     } catch (e) {
       console.error(e);
     } finally {
@@ -49,8 +49,9 @@ export default function ArticlesPage() {
   };
 
   return (
-    <div className="animate-fade-in">
-      <header className={styles.header}>
+    <>
+      <div className="animate-fade-in">
+        <header className={styles.header}>
         <h1 className={styles.title}>Articles</h1>
         <p className={styles.subtitle}>Recent articles from your subscribed sources</p>
       </header>
@@ -73,7 +74,14 @@ export default function ArticlesPage() {
                 onClick={() => openDetail(article)}
               >
                 <div className={styles.articleMeta}>
-                  <span className="tag tag-purple">Article</span>
+                  {(() => {
+                    const isVideo = article.url?.includes("youtube.com") || article.url?.includes("youtu.be");
+                    return (
+                      <span className={`tag ${isVideo ? "tag-purple" : "tag-green"}`}>
+                        {isVideo ? "Video" : "Article"}
+                      </span>
+                    );
+                  })()}
                   <span className={styles.date}>
                     {new Date(article.published_at).toLocaleDateString("en-US", {
                       month: "short", day: "numeric"
@@ -97,6 +105,7 @@ export default function ArticlesPage() {
           )}
         </>
       )}
+      </div>
 
       {/* Detail Drawer */}
       {selected && (
@@ -117,7 +126,7 @@ export default function ArticlesPage() {
 
                 {selected.summary ? (
                   <div className={styles.drawerSummary}>
-                    <h3>AI Summary</h3>
+                    <h3>Summary</h3>
                     <p>{selected.summary}</p>
                   </div>
                 ) : (
@@ -140,6 +149,6 @@ export default function ArticlesPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
