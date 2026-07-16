@@ -1,0 +1,142 @@
+/* src/app/(app)/pipeline/page.module.css */
+
+.header { margin-bottom: 32px; }
+.title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
+.subtitle { color: var(--text-secondary); font-size: 15px; margin-top: 4px; }
+
+/* ── Trigger card ─────────────────────────────────────────────────────────── */
+.triggerCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, rgba(124,58,237,0.10) 0%, rgba(79,70,229,0.06) 100%);
+  border-color: rgba(124,58,237,0.25);
+  padding-right: 48px;
+}
+
+.triggerInfo { display: flex; align-items: center; gap: 20px; }
+
+.triggerIconWrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.triggerTitle { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+.triggerDesc  { font-size: 14px; color: var(--text-secondary); max-width: 480px; }
+
+/* ── Progress card ────────────────────────────────────────────────────────── */
+.progressCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+  animation: fadeIn 0.3s ease;
+  padding-right: 48px;
+}
+
+.progressTitle { font-size: 15px; font-weight: 600; }
+.titleRunning  { color: var(--accent-light); }
+.titleDone     { color: var(--green); }
+.titleError    { color: var(--red); }
+
+/* Stage stepper */
+.stageRow  { display: flex; align-items: center; gap: 0; }
+.stageStep { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.stageStep:last-child { flex: 0; }
+
+.stepDot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.dotDone   { background: var(--green); border-color: var(--green); color: #000; }
+.dotActive { background: var(--accent-gradient); border-color: var(--accent); color: #fff; box-shadow: 0 0 12px var(--accent-glow); animation: pulse 1.2s ease infinite; }
+.dotError  { background: var(--red); border-color: var(--red); color: #fff; }
+
+.stepLabel   { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.labelActive { color: var(--accent-light); font-weight: 600; }
+
+.stepLine { flex: 1; height: 2px; background: var(--border); margin: 0 4px; transition: background 0.3s ease; }
+.lineDone { background: var(--green); }
+
+/* Progress bar */
+.progressTrack {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 3px;
+  transition: width 0.6s ease;
+  min-width: 4px;
+}
+
+.progressError { background: linear-gradient(135deg, var(--red), #c53030); }
+
+.runLabel { font-size: 12px; color: var(--text-secondary); min-height: 16px; }
+
+.noEmailNote { font-size: 13px; color: var(--text-muted); font-style: italic; margin-top: 8px; }
+
+/* ── Inline email preview ─────────────────────────────────────────────────── */
+.emailSection {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-top: 8px;
+  animation: fadeIn 0.3s ease;
+}
+
+.emailSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+
+.emailMeta    { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 4px; }
+.emailSubject { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+
+.emailBody {
+  background: #ffffff;
+  color: #111;
+  padding: 32px;
+  font-size: 15px;
+  line-height: 1.65;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.emailBody h1,
+.emailBody h2,
+.emailBody h3 { color: #111; margin: 20px 0 8px; }
+.emailBody a   { color: #7c3aed; }
+.emailBody p   { margin: 8px 0; }
