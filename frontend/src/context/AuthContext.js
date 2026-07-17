@@ -2,10 +2,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import {GoogleAuthProvider, onAuthStateChanged,signInWithPopup, signOut} from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 const AuthContext = createContext(null);
+
+const FORCE_ACCOUNT_CHOOSER_KEY = "forceGoogleAccountChooser";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
@@ -17,8 +19,26 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  const login = () => signInWithPopup(auth, googleProvider);
-  const logout = () => signOut(auth);
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
+
+    if (
+      localStorage.getItem(FORCE_ACCOUNT_CHOOSER_KEY) === "true"
+    ) {
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+    }
+
+    await signInWithPopup(auth, provider);
+
+    localStorage.removeItem(FORCE_ACCOUNT_CHOOSER_KEY);
+  };
+
+  const logout = async () => {
+    localStorage.setItem(FORCE_ACCOUNT_CHOOSER_KEY, "true");
+    await signOut(auth);
+  };
 
   return (
     <AuthContext.Provider value={{ user, login, logout }}>
