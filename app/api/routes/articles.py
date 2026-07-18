@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.models import Article, ProcessingStatus, User
+from app.models import Article, ProcessingStatus, User, UserSourceAlias
 from app.schemas import ArticleListItem, ArticleResponse
 
 router = APIRouter(prefix="/articles", tags=["Articles"])
@@ -23,7 +23,8 @@ def _get_user_source_ids(email: str, db: Session) -> list:
     user = db.query(User).filter_by(email=email, is_active=True).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{email}' not found")
-    return user.source_ids or []
+    rows = db.query(UserSourceAlias.source_id).filter_by(user_id=user.id).all()
+    return [r[0] for r in rows]
 
 
 @router.get("", response_model=list[ArticleListItem])

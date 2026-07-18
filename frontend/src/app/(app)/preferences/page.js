@@ -270,7 +270,7 @@ export default function PreferencesPage() {
               <div key={source.id} className={styles.sourceCard}>
                 <div className={styles.sourceIcon}>{TYPE_ICONS[source.type] ?? "⊕"}</div>
                 <div className={styles.sourceInfo}>
-                  <span className={styles.sourceName}>{source.name}</span>
+                  <span className={styles.sourceName}>{source.display_name}</span>
                   <span className={styles.sourceUrl}>{source.url}</span>
                   <div className={styles.sourceMeta}>
                     <span className="tag tag-purple">{source.type}</span>

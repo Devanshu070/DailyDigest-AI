@@ -144,7 +144,7 @@ export default function DashboardPage() {
                   <span className={`tag ${src.is_active ? "tag-green" : "tag-red"}`}>
                     {src.is_active ? "Active" : "Inactive"}
                   </span>
-                  <span className={styles.sourceName}>{src.name}</span>
+                  <span className={styles.sourceName}>{src.display_name}</span>
                 </div>
                 <div className={styles.sourceMeta}>
                   {src.last_fetched_at
