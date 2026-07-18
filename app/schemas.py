@@ -18,10 +18,10 @@ from app.models.source import SourceType
 # ── Source Schemas ─────────────────────────────────────────────────────────────
 
 class SourceResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Source as seen by a specific user — includes their personal display name."""
 
     id: uuid.UUID
-    name: str
+    display_name: str           # from user_source_aliases.display_name
     type: SourceType
     url: str
     is_active: bool

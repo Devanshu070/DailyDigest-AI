@@ -35,7 +35,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import (
     Article, ProcessingStatus, Source, SourceType,
-    User,
+    User, UserSourceAlias,
 )
 from app.utils.helpers import last_scheduled_digest_time
 from app.processing.cleaner import clean
@@ -143,7 +143,9 @@ def _run_for_user(
 
     # ── Step 1: Load user's subscribed sources from DB ──────────────────────
     with get_db() as db:
-        source_ids = user.source_ids or []
+        source_ids = [
+            r[0] for r in db.query(UserSourceAlias.source_id).filter_by(user_id=user.id).all()
+        ]
 
         if not source_ids:
             log.warning("User %s has no subscribed sources — skipping.", user.email)
@@ -180,10 +182,10 @@ def _run_for_user(
 
             if gap_start >= window_end:
                 log.info("Source '%s' fully cached (fetched_till=%s) — skipping fetch.",
-                         source.name, source.fetched_till)
+                         source.url, source.fetched_till)
                 continue
 
-            log.info("Fetching '%s' [%s → %s]", source.name,
+            log.info("Fetching '%s' [%s → %s]", source.url,
                      gap_start.isoformat(), window_end.isoformat())
 
             if source.type == SourceType.youtube:
@@ -216,11 +218,11 @@ def _run_for_user(
                 })
 
             ingested_count += new_count
-            log.info("Ingested %d new article(s) from '%s'", new_count, source.name)
+            log.info("Ingested %d new article(s) from '%s'", new_count, source.url)
 
         except Exception as exc:
-            log.error("Ingestion failed for source '%s': %s", source.name, exc)
-            failed_sources.append((source.name, str(exc)))
+            log.error("Ingestion failed for source '%s': %s", source.url, exc)
+            failed_sources.append((source.url, str(exc)))
             with get_db() as db:
                 db.query(Source).filter_by(id=source.id).update({
                     "failure_count": Source.failure_count + 1,
