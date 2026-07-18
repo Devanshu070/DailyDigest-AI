@@ -9,9 +9,6 @@ A User is a subscriber of DailyDigest.
 - last_scheduled_digest_at: timestamp of the last SCHEDULED run that successfully sent email.
                             Used exclusively by the scheduler's skip guard to prevent
                             double-delivery on the same day. Manual runs do NOT update this.
-- source_ids:               PostgreSQL UUID array — the sources this user subscribes to.
-                            Stored directly on the user row (no junction table needed).
-                            The runner queries: Source WHERE id IN user.source_ids
 """
 
 import uuid
@@ -61,18 +58,10 @@ class User(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # PostgreSQL UUID array — list of source IDs this user subscribes to.
-    # No junction table needed: we only ever query "sources for user X", never the reverse.
-    # Usage in runner: db.query(Source).filter(Source.id.in_(user.source_ids))
-    source_ids: Mapped[list] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=False, default=list
-    )
-
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     def __repr__(self) -> str:
         return (
             f"<User email={self.email!r} "
-            f"digest_time={self.digest_time} "
-            f"sources={len(self.source_ids or [])}>"
+            f"digest_time={self.digest_time}>"
         )

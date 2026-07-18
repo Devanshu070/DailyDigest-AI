@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.api.app import APP_VERSION
 from app.database import get_db_session
-from app.models import Source, User
+from app.models import Source, User, UserSourceAlias
 from app.schemas import HealthResponse, PipelineStatusResponse, SourceResponse
 from app.api.routes.users import get_or_create_user
+from app.api.routes.sources import _to_response
 
 router = APIRouter(tags=["Health"])
 
@@ -43,16 +44,20 @@ def pipeline_status(
     """
     user = get_or_create_user(email, db)
 
-    # Fetch only the sources this user is subscribed to
-    source_ids = user.source_ids or []
-    sources = (
-        db.query(Source).filter(Source.id.in_(source_ids)).all()
-        if source_ids else []
+    # Fetch sources and user's display names in a single JOIN — no N+1
+    rows = (
+        db.query(Source, UserSourceAlias.display_name)
+        .join(
+            UserSourceAlias,
+            (UserSourceAlias.source_id == Source.id)
+            & (UserSourceAlias.user_id == user.id),
+        )
+        .all()
     )
 
     return PipelineStatusResponse(
         user_email=user.email,
         digest_time=user.digest_time,
         last_digest_at=user.last_digest_at,
-        sources=[SourceResponse.model_validate(s) for s in sources],
+        sources=[_to_response(source, display_name) for source, display_name in rows],
     )

@@ -2,6 +2,8 @@
 app/models/source.py — Source model.
 
 A Source represents a single content origin — a YouTube channel or a blog.
+Sources are globally unique, identified by their canonical URL.
+Per-user display names live in UserSourceAlias, not here.
 Each run queries Source WHERE is_active = True to determine what to ingest.
 """
 
@@ -29,11 +31,11 @@ class Source(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # No `name` field: user-visible names are stored in UserSourceAlias.display_name.
     type: Mapped[SourceType] = mapped_column(
         Enum(SourceType, name="source_type"), nullable=False
     )
-    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     last_fetched_at: Mapped[datetime | None] = mapped_column(
@@ -52,4 +54,4 @@ class Source(TimestampMixin, Base):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
-        return f"<Source name={self.name!r} type={self.type} active={self.is_active}>"
+        return f"<Source url={self.url!r} type={self.type} active={self.is_active}>"
