@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, time
 
 from sqlalchemy import Boolean, DateTime, String, Text, Time
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -56,6 +56,11 @@ class User(TimestampMixin, Base):
     # None = no scheduled digest has ever been sent.
     last_scheduled_digest_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # When true, scheduled digest delivery is skipped. Manual runs remain available.
+    digest_paused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
     )
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -4,6 +4,7 @@ app/api/routes/users.py — User preferences and settings.
 GET   /api/v1/users/me                 → Fetch user profile (digest_time, interests, etc)
 PATCH /api/v1/users/me/digest-time     → Update daily delivery time
 PATCH /api/v1/users/me/interests       → Update Markdown interest prompt
+PATCH /api/v1/users/me/digest-pause    → Pause or resume scheduled digest delivery
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -11,7 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db_session
 from app.models import User
-from app.schemas import UserDigestTimeUpdate, UserInterestsUpdate, UserResponse
+from app.schemas import (
+    UserDigestPauseUpdate,
+    UserDigestTimeUpdate,
+    UserInterestsUpdate,
+    UserResponse,
+)
 
 import logging
 
@@ -61,5 +67,18 @@ def update_interests(
     """Update the custom Markdown prompt used to personalize this user's digest."""
     user = get_or_create_user(email, db)
     user.interests_md = body.interests_md
+    db.flush()
+    return user
+
+
+@router.patch("/me/digest-pause", response_model=UserResponse)
+def update_digest_pause(
+    body: UserDigestPauseUpdate,
+    email: str = Query(..., description="User email"),
+    db: Session = Depends(get_db_session),
+):
+    """Pause or resume scheduled digest delivery for this user."""
+    user = get_or_create_user(email, db)
+    user.digest_paused = body.paused
     db.flush()
     return user

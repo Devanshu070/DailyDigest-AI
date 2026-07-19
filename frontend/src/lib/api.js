@@ -48,6 +48,12 @@ export const updateInterests = (email, interests_md) =>
     body: JSON.stringify({ interests_md }),
   });
 
+export const updateDigestPause = (email, paused) =>
+  authFetch(`/api/v1/users/me/digest-pause?email=${encodeURIComponent(email)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ paused }),
+  });
+
 // ── Sources ─────────────────────────────────────────────────────────────────
 export const getSources = (email) =>
   authFetch(`/api/v1/sources?email=${encodeURIComponent(email)}`);

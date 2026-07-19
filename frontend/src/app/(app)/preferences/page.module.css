@@ -72,6 +72,18 @@
   flex-shrink: 0;
 }
 
+.pauseRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.pauseRow strong {
+  font-size: 14px;
+}
+
 .timeInput {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
