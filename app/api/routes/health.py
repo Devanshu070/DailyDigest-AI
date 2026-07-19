@@ -59,5 +59,6 @@ def pipeline_status(
         user_email=user.email,
         digest_time=user.digest_time,
         last_digest_at=user.last_digest_at,
+        digest_paused=user.digest_paused,
         sources=[_to_response(source, display_name) for source, display_name in rows],
     )

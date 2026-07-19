@@ -2,8 +2,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { deleteUser, GoogleAuthProvider, reauthenticateWithPopup } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
-import { getUserProfile, updateDigestTime, updateInterests, getSources, createSource, deleteSource } from "@/lib/api";
+import { auth } from "@/lib/firebase";
+import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, deleteAccount, getSources, createSource, deleteSource } from "@/lib/api";
 import styles from "./page.module.css";
 
 // IST = UTC + 5h30m (330 minutes)
@@ -26,13 +28,18 @@ const SOURCE_TYPES = ["blog", "youtube", "reddit", "twitter", "rss", "podcast", 
 const TYPE_ICONS = { blog: "✍", youtube: "▶", reddit: "⬆", twitter: "✦", rss: "◎", podcast: "🎙", other: "⊕" };
 
 export default function PreferencesPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
 
   // Digest time
   const [digestTimeIst, setDigestTimeIst] = useState("09:00");
   const [savingTime, setSavingTime] = useState(false);
   const [timeMsg, setTimeMsg] = useState(null);
+  const [digestPaused, setDigestPaused] = useState(false);
+  const [savingPause, setSavingPause] = useState(false);
+  const [pauseMsg, setPauseMsg] = useState(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountMsg, setAccountMsg] = useState(null);
 
   // Interests
   const [interests, setInterests] = useState("");
@@ -54,6 +61,7 @@ export default function PreferencesPage() {
       const data = await getUserProfile(user.email);
       setDigestTimeIst(utcToIst(data.digest_time ?? "09:00:00"));
       setInterests(data.interests_md ?? "");
+      setDigestPaused(data.digest_paused ?? false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -94,6 +102,45 @@ export default function PreferencesPage() {
     } catch (e) {
       setInterestsMsg({ type: "error", text: e.message });
     } finally { setSavingInterests(false); }
+  };
+
+  const handleTogglePause = async () => {
+    const nextPaused = !digestPaused;
+    setSavingPause(true); setPauseMsg(null);
+    try {
+      const data = await updateDigestPause(user.email, nextPaused);
+      setDigestPaused(data.digest_paused);
+      setPauseMsg({
+        type: "success",
+        text: data.digest_paused
+          ? "Scheduled digest emails are paused."
+          : "Scheduled digest emails are active again.",
+      });
+    } catch (e) {
+      setPauseMsg({ type: "error", text: e.message });
+    } finally { setSavingPause(false); }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm("Delete your account and all of your subscriptions? This cannot be undone.")) {
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    setDeletingAccount(true); setAccountMsg(null);
+    try {
+      // Firebase requires recent authentication for account deletion.
+      await reauthenticateWithPopup(currentUser, new GoogleAuthProvider());
+      await deleteAccount();
+      await deleteUser(currentUser);
+      await logout();
+      window.location.assign("/");
+    } catch (e) {
+      setAccountMsg({ type: "error", text: e.message });
+      setDeletingAccount(false);
+    }
   };
 
   const handleDelete = async (sourceId) => {
@@ -162,6 +209,22 @@ export default function PreferencesPage() {
         {timeMsg && (
           <p className={`${styles.msg} ${timeMsg.type === "error" ? styles.error : styles.success}`}>
             {timeMsg.text}
+          </p>
+        )}
+        <div className={styles.pauseRow}>
+          <div>
+            <strong>{digestPaused ? "Scheduled delivery is paused" : "Scheduled delivery is active"}</strong>
+            <p className={styles.sectionDesc}>
+              Manual pipeline runs remain available while scheduled delivery is paused.
+            </p>
+          </div>
+          <button className="btn-primary" onClick={handleTogglePause} disabled={savingPause}>
+            {savingPause ? <><span className="spinner" /> Saving…</> : digestPaused ? "Resume" : "Pause"}
+          </button>
+        </div>
+        {pauseMsg && (
+          <p className={`${styles.msg} ${pauseMsg.type === "error" ? styles.error : styles.success}`}>
+            {pauseMsg.text}
           </p>
         )}
       </div>
@@ -299,6 +362,24 @@ export default function PreferencesPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* ── Account ── */}
+      <div className={`card ${styles.section} ${styles.dangerSection}`}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>Delete Account</h2>
+            <p className={styles.sectionDesc}>
+              Permanently remove your profile and subscriptions. Shared source and article data is preserved.
+            </p>
+          </div>
+          <button className={styles.dangerButton} onClick={handleDeleteAccount} disabled={deletingAccount}>
+            {deletingAccount ? <><span className="spinner" /> Deleting…</> : "Delete account"}
+          </button>
+        </div>
+        {accountMsg && (
+          <p className={`${styles.msg} ${styles.error}`}>{accountMsg.text}</p>
         )}
       </div>
     </div>

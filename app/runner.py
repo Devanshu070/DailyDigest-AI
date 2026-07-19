@@ -6,6 +6,7 @@ Execution order:
   2. Load all active users from DB
   3. For each user — check if their digest is due:
        scheduled: now >= today's digest_time AND last_scheduled_digest_at < today's digest_time
+                  AND digest_paused is false
        manual:    always run
   4. For each due user:
      a. Compute window: [last_scheduled_digest_at → today's digest_time]  (scheduled)
@@ -98,6 +99,10 @@ def run(
     log.info("Found %d active user(s)", len(users))
 
     for user in users:
+        if not manual and user.digest_paused:
+            log.info("User %s: scheduled digest delivery is paused — skipping.", user.email)
+            continue
+
         if manual:
             window_start = now - timedelta(hours=24)
             window_end = now
@@ -454,4 +459,3 @@ def _build_status_footer(sources: list, failed_sources: list[tuple]) -> str:
         names = ", ".join(n for n, _ in failed_sources)
         return f"{ok} sources ingested successfully. {len(failed_sources)} failed: {names}"
     return f"{ok} sources ingested successfully."
-    

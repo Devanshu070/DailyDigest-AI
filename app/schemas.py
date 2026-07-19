@@ -76,6 +76,7 @@ class UserResponse(BaseModel):
     email: str
     digest_time: time
     interests_md: str
+    digest_paused: bool
 
 
 class UserDigestTimeUpdate(BaseModel):
@@ -84,6 +85,10 @@ class UserDigestTimeUpdate(BaseModel):
 
 class UserInterestsUpdate(BaseModel):
     interests_md: str
+
+
+class UserDigestPauseUpdate(BaseModel):
+    paused: bool
 
 
 # ── Health / Status Schemas ────────────────────────────────────────────────────
@@ -98,6 +103,7 @@ class PipelineStatusResponse(BaseModel):
     user_email: str
     digest_time: time
     last_digest_at: Optional[datetime]
+    digest_paused: bool
     sources: list[SourceResponse]
 
 

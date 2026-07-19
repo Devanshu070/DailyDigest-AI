@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Groq
     groq_api_key: str
 
+    # Firebase project ID — used to verify Firebase ID tokens for account deletion.
+    firebase_project_id: str = ""
+
     # Gmail SMTP — email delivery
     gmail_sender: str       # your Gmail address, e.g. you@gmail.com
     gmail_app_password: str # 16-char App Password (not your account password)
