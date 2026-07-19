@@ -5,13 +5,15 @@ GET   /api/v1/users/me                 → Fetch user profile (digest_time, inte
 PATCH /api/v1/users/me/digest-time     → Update daily delivery time
 PATCH /api/v1/users/me/interests       → Update Markdown interest prompt
 PATCH /api/v1/users/me/digest-pause    → Pause or resume scheduled digest delivery
+DELETE /api/v1/users/me                → Delete the authenticated user's PostgreSQL account
 """
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.auth import get_current_firebase_user
 from app.database import get_db_session
-from app.models import User
+from app.models import User, UserSourceAlias
 from app.schemas import (
     UserDigestPauseUpdate,
     UserDigestTimeUpdate,
@@ -82,3 +84,25 @@ def update_digest_pause(
     user.digest_paused = body.paused
     db.flush()
     return user
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    firebase_user: dict = Depends(get_current_firebase_user),
+    db: Session = Depends(get_db_session),
+):
+    """Delete the authenticated user's PostgreSQL profile and subscriptions."""
+    email = firebase_user.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The Firebase account has no email identity.",
+        )
+
+    user = db.query(User).filter_by(email=email, is_active=True).first()
+    if user:
+        db.query(UserSourceAlias).filter_by(user_id=user.id).delete(
+            synchronize_session=False
+        )
+        db.delete(user)
+        db.flush()

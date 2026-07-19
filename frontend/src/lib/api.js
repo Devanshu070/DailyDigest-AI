@@ -24,6 +24,7 @@ async function authFetch(url, options = {}) {
     throw new Error(error.detail || "API request failed");
   }
 
+  if (response.status === 204) return null;
   return response.json();
 }
 
@@ -54,6 +55,9 @@ export const updateDigestPause = (email, paused) =>
     body: JSON.stringify({ paused }),
   });
 
+export const deleteAccount = () =>
+  authFetch("/api/v1/users/me", { method: "DELETE" });
+
 // ── Sources ─────────────────────────────────────────────────────────────────
 export const getSources = (email) =>
   authFetch(`/api/v1/sources?email=${encodeURIComponent(email)}`);
@@ -67,7 +71,7 @@ export const createSource = (email, sources) =>
 export const deleteSource = (email, sourceId) =>
   authFetch(`/api/v1/sources/${sourceId}?email=${encodeURIComponent(email)}`, {
     method: "DELETE",
-  }).catch(() => null); // 204 No Content — no JSON body
+  });
 
 // ── Articles ─────────────────────────────────────────────────────────────────
 export const getArticles = (email, limit = 20, offset = 0) =>
