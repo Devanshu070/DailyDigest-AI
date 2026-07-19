@@ -114,19 +114,27 @@ export default function DashboardPage() {
         <div className={`card ${styles.countdownCard}`}>
           <div className={styles.countdownTop}>
             <div>
-              <p className={styles.countdownLabel}>Next Digest In</p>
-              <p className={styles.countdownValue}>{hoursLeft}h {minsRem}m</p>
+              <p className={styles.countdownLabel}>{status.digest_paused ? "Scheduled Delivery" : "Next Digest In"}</p>
+              <p className={styles.countdownValue}>
+                {status.digest_paused ? "Paused" : `${hoursLeft}h ${minsRem}m`}
+              </p>
             </div>
             <div className={styles.scheduleInfo}>
               <span className={styles.scheduleLabel}>Scheduled at</span>
               <span className={styles.scheduleTime}>{utcToLocal(status.digest_time)}</span>
-              <Link href="/preferences" className={styles.changeLink}>Change schedule ›</Link>
+              <Link href="/preferences" className={styles.changeLink}>
+                {status.digest_paused ? "Resume delivery ›" : "Change schedule ›"}
+              </Link>
             </div>
           </div>
           <div className={styles.progressTrack}>
             <div className={styles.progressFill} style={{ width: `${pct}%` }} />
           </div>
-          <p className={styles.progressCaption}>Progress through current 24-hour window</p>
+          <p className={styles.progressCaption}>
+            {status.digest_paused
+              ? "Scheduled emails are paused. Manual runs remain available."
+              : "Progress through current 24-hour window"}
+          </p>
         </div>
       )}
 
