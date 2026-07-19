@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getUserProfile, updateDigestTime, updateInterests, getSources, createSource, deleteSource } from "@/lib/api";
+import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, getSources, createSource, deleteSource } from "@/lib/api";
 import styles from "./page.module.css";
 
 // IST = UTC + 5h30m (330 minutes)
@@ -33,6 +33,9 @@ export default function PreferencesPage() {
   const [digestTimeIst, setDigestTimeIst] = useState("09:00");
   const [savingTime, setSavingTime] = useState(false);
   const [timeMsg, setTimeMsg] = useState(null);
+  const [digestPaused, setDigestPaused] = useState(false);
+  const [savingPause, setSavingPause] = useState(false);
+  const [pauseMsg, setPauseMsg] = useState(null);
 
   // Interests
   const [interests, setInterests] = useState("");
@@ -54,6 +57,7 @@ export default function PreferencesPage() {
       const data = await getUserProfile(user.email);
       setDigestTimeIst(utcToIst(data.digest_time ?? "09:00:00"));
       setInterests(data.interests_md ?? "");
+      setDigestPaused(data.digest_paused ?? false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -94,6 +98,23 @@ export default function PreferencesPage() {
     } catch (e) {
       setInterestsMsg({ type: "error", text: e.message });
     } finally { setSavingInterests(false); }
+  };
+
+  const handleTogglePause = async () => {
+    const nextPaused = !digestPaused;
+    setSavingPause(true); setPauseMsg(null);
+    try {
+      const data = await updateDigestPause(user.email, nextPaused);
+      setDigestPaused(data.digest_paused);
+      setPauseMsg({
+        type: "success",
+        text: data.digest_paused
+          ? "Scheduled digest emails are paused."
+          : "Scheduled digest emails are active again.",
+      });
+    } catch (e) {
+      setPauseMsg({ type: "error", text: e.message });
+    } finally { setSavingPause(false); }
   };
 
   const handleDelete = async (sourceId) => {
@@ -162,6 +183,22 @@ export default function PreferencesPage() {
         {timeMsg && (
           <p className={`${styles.msg} ${timeMsg.type === "error" ? styles.error : styles.success}`}>
             {timeMsg.text}
+          </p>
+        )}
+        <div className={styles.pauseRow}>
+          <div>
+            <strong>{digestPaused ? "Scheduled delivery is paused" : "Scheduled delivery is active"}</strong>
+            <p className={styles.sectionDesc}>
+              Manual pipeline runs remain available while scheduled delivery is paused.
+            </p>
+          </div>
+          <button className="btn-primary" onClick={handleTogglePause} disabled={savingPause}>
+            {savingPause ? <><span className="spinner" /> Saving…</> : digestPaused ? "Resume" : "Pause"}
+          </button>
+        </div>
+        {pauseMsg && (
+          <p className={`${styles.msg} ${pauseMsg.type === "error" ? styles.error : styles.success}`}>
+            {pauseMsg.text}
           </p>
         )}
       </div>
