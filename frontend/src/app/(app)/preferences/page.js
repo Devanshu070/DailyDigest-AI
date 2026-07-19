@@ -2,8 +2,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { deleteUser, GoogleAuthProvider, reauthenticateWithPopup } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
-import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, getSources, createSource, deleteSource } from "@/lib/api";
+import { auth } from "@/lib/firebase";
+import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, deleteAccount, getSources, createSource, deleteSource } from "@/lib/api";
 import styles from "./page.module.css";
 
 // IST = UTC + 5h30m (330 minutes)
@@ -26,7 +28,7 @@ const SOURCE_TYPES = ["blog", "youtube", "reddit", "twitter", "rss", "podcast", 
 const TYPE_ICONS = { blog: "✍", youtube: "▶", reddit: "⬆", twitter: "✦", rss: "◎", podcast: "🎙", other: "⊕" };
 
 export default function PreferencesPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
 
   // Digest time
@@ -36,6 +38,8 @@ export default function PreferencesPage() {
   const [digestPaused, setDigestPaused] = useState(false);
   const [savingPause, setSavingPause] = useState(false);
   const [pauseMsg, setPauseMsg] = useState(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [accountMsg, setAccountMsg] = useState(null);
 
   // Interests
   const [interests, setInterests] = useState("");
@@ -115,6 +119,28 @@ export default function PreferencesPage() {
     } catch (e) {
       setPauseMsg({ type: "error", text: e.message });
     } finally { setSavingPause(false); }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!window.confirm("Delete your account and all of your subscriptions? This cannot be undone.")) {
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    setDeletingAccount(true); setAccountMsg(null);
+    try {
+      // Firebase requires recent authentication for account deletion.
+      await reauthenticateWithPopup(currentUser, new GoogleAuthProvider());
+      await deleteAccount();
+      await deleteUser(currentUser);
+      await logout();
+      window.location.assign("/");
+    } catch (e) {
+      setAccountMsg({ type: "error", text: e.message });
+      setDeletingAccount(false);
+    }
   };
 
   const handleDelete = async (sourceId) => {
@@ -336,6 +362,24 @@ export default function PreferencesPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* ── Account ── */}
+      <div className={`card ${styles.section} ${styles.dangerSection}`}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>Delete Account</h2>
+            <p className={styles.sectionDesc}>
+              Permanently remove your profile and subscriptions. Shared source and article data is preserved.
+            </p>
+          </div>
+          <button className={styles.dangerButton} onClick={handleDeleteAccount} disabled={deletingAccount}>
+            {deletingAccount ? <><span className="spinner" /> Deleting…</> : "Delete account"}
+          </button>
+        </div>
+        {accountMsg && (
+          <p className={`${styles.msg} ${styles.error}`}>{accountMsg.text}</p>
         )}
       </div>
     </div>
