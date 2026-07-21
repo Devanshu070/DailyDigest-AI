@@ -3,12 +3,36 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { getSources, createSource, deleteSource } from "@/lib/api";
+import {
+  getSources,
+  createSource,
+  deleteSource,
+  testSource,
+  testExistingSource,
+  testAllSources,
+} from "@/lib/api";
 import styles from "./page.module.css";
 
 const SOURCE_TYPES = ["blog", "youtube"];
 const TYPE_LABELS = { blog: "Blog / Article", youtube: "YouTube" };
 const TYPE_ICONS = { blog: "✍", youtube: "▶" };
+
+function TestResult({ result }) {
+  if (!result) return null;
+
+  const label = result.ok
+    ? "Readable"
+    : result.status === "invalid_url"
+      ? "Invalid URL"
+      : "Temporarily unavailable";
+
+  return (
+    <div className={`${styles.testResult} ${result.ok ? styles.testSuccess : styles.testFailure}`}>
+      <strong>{label}</strong>
+      <span>{result.message}</span>
+    </div>
+  );
+}
 
 export default function SourcesPage() {
   const { user } = useAuth();
@@ -19,6 +43,17 @@ export default function SourcesPage() {
   const [form, setForm] = useState({ name: "", type: "blog", url: "" });
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState(null);
+  const [newTestResult, setNewTestResult] = useState(null);
+  const [testingNew, setTestingNew] = useState(false);
+  const [testingIds, setTestingIds] = useState({});
+  const [testResults, setTestResults] = useState({});
+  const [testingAll, setTestingAll] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
+  const updateForm = (changes) => {
+    setForm(current => ({ ...current, ...changes }));
+    setNewTestResult(null);
+  };
 
   const fetchSources = useCallback(async () => {
     if (!user?.email) return;
@@ -45,6 +80,76 @@ export default function SourcesPage() {
     } finally { setDeletingId(null); }
   };
 
+  const handleTestNew = async () => {
+    if (!form.url) return;
+    setTestingNew(true);
+    setNewTestResult(null);
+    try {
+      setNewTestResult(await testSource(form));
+    } catch (e) {
+      setNewTestResult({ ok: false, status: "temporary_error", message: e.message });
+    } finally {
+      setTestingNew(false);
+    }
+  };
+
+  const handleTest = async (sourceId) => {
+    setTestingIds(prev => ({ ...prev, [sourceId]: true }));
+    try {
+      const result = await testExistingSource(user.email, sourceId);
+      setTestResults(prev => ({ ...prev, [sourceId]: result }));
+    } catch (e) {
+      setTestResults(prev => ({
+        ...prev,
+        [sourceId]: { ok: false, status: "temporary_error", message: e.message },
+      }));
+    } finally {
+      setTestingIds(prev => {
+        const next = { ...prev };
+        delete next[sourceId];
+        return next;
+      });
+    }
+  };
+
+  const handleTestAll = async () => {
+    if (sources.length === 0) return;
+    setTestingAll(true);
+    setBulkResult(`Testing 0 of ${sources.length}...`);
+
+    const initialTesting = {};
+    sources.forEach(s => { initialTesting[s.id] = true; });
+    setTestingIds(prev => ({ ...prev, ...initialTesting }));
+
+    let completedCount = 0;
+    let healthyCount = 0;
+
+    const promises = sources.map(async (source) => {
+      try {
+        const result = await testExistingSource(user.email, source.id);
+        setTestResults(prev => ({ ...prev, [source.id]: result }));
+        if (result.ok) healthyCount++;
+      } catch (e) {
+        setTestResults(prev => ({
+          ...prev,
+          [source.id]: { ok: false, status: "temporary_error", message: e.message },
+        }));
+      } finally {
+        completedCount++;
+        setTestingIds(prev => {
+          const next = { ...prev };
+          delete next[source.id];
+          return next;
+        });
+        setBulkResult(`Testing ${completedCount} of ${sources.length}...`);
+      }
+    });
+
+    await Promise.allSettled(promises);
+    setBulkResult(`${healthyCount} of ${sources.length} sources readable.`);
+    setTestingAll(false);
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     setAdding(true); setAddError(null);
@@ -55,6 +160,7 @@ export default function SourcesPage() {
         return [...prev, ...created.filter(s => !existingIds.has(s.id))];
       });
       setForm({ name: "", type: "blog", url: "" });
+      setNewTestResult(null);
       setShowForm(false);
     } catch (e) {
       setAddError(e.message);
@@ -73,10 +179,19 @@ export default function SourcesPage() {
             <h2 className={styles.sectionTitle}>Manage Sources</h2>
             <p className={styles.sectionDesc}>Content sources included in your daily digest.</p>
           </div>
-          <button className="btn-primary" onClick={() => setShowForm(v => !v)}>
-            {showForm ? "✕ Cancel" : "+ Add Source"}
-          </button>
+          <div className={styles.headerActions}>
+            {sources.length > 0 && (
+              <button className="btn-ghost" onClick={handleTestAll} disabled={testingAll}>
+                {testingAll ? <><span className="spinner" /> Testing…</> : "Test all sources"}
+              </button>
+            )}
+            <button className="btn-primary" onClick={() => setShowForm(v => !v)}>
+              {showForm ? "✕ Cancel" : "+ Add Source"}
+            </button>
+          </div>
         </div>
+
+        {bulkResult && <p className={styles.bulkResult}>{bulkResult}</p>}
 
         {/* Add form */}
         {showForm && (
@@ -88,7 +203,7 @@ export default function SourcesPage() {
                   required
                   placeholder="e.g. Fireship, Anthropic Blog"
                   value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  onChange={e => updateForm({ name: e.target.value })}
                   className={styles.input}
                 />
               </div>
@@ -96,7 +211,7 @@ export default function SourcesPage() {
                 <label>Type</label>
                 <select
                   value={form.type}
-                  onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                  onChange={e => updateForm({ type: e.target.value })}
                   className={styles.input}
                 >
                   {SOURCE_TYPES.map(t => (
@@ -111,13 +226,17 @@ export default function SourcesPage() {
                   type="url"
                   placeholder="https://..."
                   value={form.url}
-                  onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+                  onChange={e => updateForm({ url: e.target.value })}
                   className={styles.input}
                 />
               </div>
             </div>
             {addError && <p className={styles.error}>{addError}</p>}
+            <TestResult result={newTestResult} />
             <div className={styles.formActions}>
+              <button type="button" className="btn-ghost" onClick={handleTestNew} disabled={testingNew || !form.url}>
+                {testingNew ? <><span className="spinner" /> Testing…</> : "Test source"}
+              </button>
               <button type="submit" className="btn-primary" disabled={adding}>
                 {adding ? <><span className="spinner" /> Adding…</> : "Add Source"}
               </button>
@@ -157,17 +276,28 @@ export default function SourcesPage() {
                       <span className="tag tag-red">⚠ {source.failure_count} errors</span>
                     )}
                   </div>
+                  <TestResult result={testResults[source.id]} />
                 </div>
-                <button
-                  className={styles.deleteBtn}
-                  onClick={() => handleDelete(source.id)}
-                  disabled={deletingId === source.id}
-                  title="Unsubscribe"
-                >
-                  {deletingId === source.id
-                    ? <span className="spinner" style={{ width: 14, height: 14 }} />
-                    : "✕"}
-                </button>
+                <div className={styles.sourceActions}>
+                  <button
+                    className={styles.testButton}
+                    onClick={() => handleTest(source.id)}
+                    disabled={!!testingIds[source.id]}
+                    title="Test whether this source can be read"
+                  >
+                    {testingIds[source.id] ? <span className="spinner" style={{ width: 14, height: 14 }} /> : "Test"}
+                  </button>
+                  <button
+                    className={styles.deleteBtn}
+                    onClick={() => handleDelete(source.id)}
+                    disabled={deletingId === source.id}
+                    title="Unsubscribe"
+                  >
+                    {deletingId === source.id
+                      ? <span className="spinner" style={{ width: 14, height: 14 }} />
+                      : "✕"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

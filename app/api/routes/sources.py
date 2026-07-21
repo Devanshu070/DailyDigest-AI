@@ -13,18 +13,28 @@ Design notes:
   - All list queries use a single JOIN to avoid N+1 queries.
 """
 
+import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db_session
-from app.models import Source, UserSourceAlias
-from app.schemas import SourceCreateMany, SourceResponse
+from app.ingestion.blog.ingester import BlogIngester
+from app.ingestion.youtube.ingester import YouTubeIngester
+from app.models import Source, SourceType, UserSourceAlias
+from app.schemas import (
+    SourceCheckRequest,
+    SourceCheckResponse,
+    SourceCreateMany,
+    SourceResponse,
+)
 from app.api.routes.users import get_or_create_user
 
 router = APIRouter(prefix="/sources", tags=["Sources"])
+log = logging.getLogger(__name__)
 
 
 # ── URL normalisation ──────────────────────────────────────────────────────────
@@ -69,6 +79,70 @@ def _to_response(source: Source, display_name: str) -> SourceResponse:
         created_at=source.created_at,
         updated_at=source.updated_at,
     )
+
+
+def _validate_check_url(source_type: SourceType, raw_url: str) -> str:
+    """Validate the minimum URL shape required by the source ingesters."""
+    candidate = raw_url.strip()
+    if "://" not in candidate:
+        candidate = f"https://{candidate}"
+
+    parsed = urlparse(candidate)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or any(character.isspace() for character in parsed.netloc)
+    ):
+        raise ValueError("Enter a complete URL, such as https://example.com/feed")
+
+    if source_type == SourceType.youtube and parsed.hostname.lower() not in {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+    }:
+        raise ValueError("YouTube sources must use a youtube.com channel URL")
+
+    return candidate
+
+
+def _test_source(
+    source_type: SourceType,
+    raw_url: str,
+    source_id: uuid.UUID | None = None,
+) -> SourceCheckResponse:
+    """Fetch a source without parsing, persisting, or sending anything."""
+    try:
+        url = _validate_check_url(source_type, raw_url)
+    except ValueError as exc:
+        return SourceCheckResponse(
+            source_id=source_id,
+            ok=False,
+            status="invalid_url",
+            message=str(exc),
+        )
+
+    try:
+        ingester = YouTubeIngester() if source_type == SourceType.youtube else BlogIngester()
+        entries = ingester.fetch(url)
+        item_count = len(entries or [])
+        return SourceCheckResponse(
+            source_id=source_id,
+            ok=True,
+            status="healthy",
+            message=f"Source is readable. Found {item_count} item(s).",
+            item_count=item_count,
+        )
+    except Exception:
+        log.exception("Source test failed for %s", raw_url)
+        return SourceCheckResponse(
+            source_id=source_id,
+            ok=False,
+            status="temporary_error",
+            message=(
+                "We could not read this source right now. It may be temporarily "
+                "unavailable, or the URL may no longer be valid."
+            ),
+        )
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -151,6 +225,69 @@ def create_and_subscribe(
         result.append(_to_response(source, item.name))
 
     return result
+
+
+@router.post("/check", response_model=SourceCheckResponse)
+def test_new_source(body: SourceCheckRequest):
+    """Test a source before adding it; this endpoint does not change the database."""
+    return _test_source(body.type, body.url)
+
+
+@router.post("/check-all", response_model=list[SourceCheckResponse])
+def test_all_sources(
+    email: str = Query(..., description="User email"),
+    db: Session = Depends(get_db_session),
+):
+    """Test every source subscribed to by the current user."""
+    user = get_or_create_user(email, db)
+    rows = (
+        db.query(Source.id, Source.type, Source.url)
+        .join(
+            UserSourceAlias,
+            (UserSourceAlias.source_id == Source.id)
+            & (UserSourceAlias.user_id == user.id),
+        )
+        .all()
+    )
+
+    # Network failures can take several seconds because the ingesters retry.
+    # Run independent source tests concurrently while keeping DB work outside
+    # the worker threads.
+    max_workers = min(4, len(rows)) or 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        return list(
+            executor.map(
+                lambda row: _test_source(row.type, row.url, row.id),
+                rows,
+            )
+        )
+
+
+@router.post("/{source_id}/check", response_model=SourceCheckResponse)
+def test_existing_source(
+    source_id: uuid.UUID,
+    email: str = Query(..., description="User email"),
+    db: Session = Depends(get_db_session),
+):
+    """Test one source after confirming that the user is subscribed to it."""
+    user = get_or_create_user(email, db)
+    source = (
+        db.query(Source)
+        .join(
+            UserSourceAlias,
+            (UserSourceAlias.source_id == Source.id)
+            & (UserSourceAlias.user_id == user.id),
+        )
+        .filter(Source.id == source_id)
+        .first()
+    )
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You are not subscribed to this source",
+        )
+
+    return _test_source(source.type, source.url, source.id)
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -30,6 +30,14 @@
   gap: 16px;
 }
 
+.headerActions,
+.sourceActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 
 .sectionTitle {
   font-size: 17px;
@@ -97,6 +105,8 @@
 
 .formActions {
   display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-end;
 }
 
@@ -167,6 +177,7 @@
   align-items: center;
   gap: 8px;
   margin-top: 3px;
+  flex-wrap: wrap;
 }
 
 .lastFetched {
@@ -187,6 +198,41 @@
   justify-content: center;
   flex-shrink: 0;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.testButton {
+  background: transparent;
+  color: var(--accent-light);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.testButton:hover:not(:disabled) {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: var(--accent-light);
+}
+
+.testResult {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.testSuccess { color: var(--green); }
+.testFailure { color: var(--red); }
+
+.testResult span { color: var(--text-secondary); }
+
+.bulkResult {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: -4px;
 }
 
 .deleteBtn:hover:not(:disabled) {
@@ -247,4 +293,32 @@
 .error {
   background: rgba(248, 113, 113, 0.1);
   color: var(--red);
+}
+
+@media (max-width: 640px) {
+  .sectionHeader,
+  .headerActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .headerActions button {
+    justify-content: center;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fullWidth {
+    grid-column: auto;
+  }
+
+  .sourceCard {
+    align-items: flex-start;
+  }
+
+  .sourceActions {
+    flex-direction: column;
+  }
 }
