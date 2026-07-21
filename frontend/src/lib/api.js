@@ -73,6 +73,22 @@ export const deleteSource = (email, sourceId) =>
     method: "DELETE",
   });
 
+export const testSource = (source) =>
+  authFetch("/api/v1/sources/check", {
+    method: "POST",
+    body: JSON.stringify({ type: source.type, url: source.url }),
+  });
+
+export const testExistingSource = (email, sourceId) =>
+  authFetch(`/api/v1/sources/${sourceId}/check?email=${encodeURIComponent(email)}`, {
+    method: "POST",
+  });
+
+export const testAllSources = (email) =>
+  authFetch(`/api/v1/sources/check-all?email=${encodeURIComponent(email)}`, {
+    method: "POST",
+  });
+
 // ── Articles ─────────────────────────────────────────────────────────────────
 export const getArticles = (email, limit = 20, offset = 0) =>
   authFetch(

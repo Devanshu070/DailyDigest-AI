@@ -12,6 +12,12 @@
 .title    { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
 .subtitle { color: var(--text-secondary); font-size: 15px; margin-top: 4px; }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* ── Stats grid ─────────────────────────────────────────────────────────────── */
 .statsGrid {
   display: grid;
@@ -64,7 +70,36 @@
 .scheduleInfo  { text-align: right; display: flex; flex-direction: column; gap: 2px; }
 .scheduleLabel { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
 .scheduleTime  { font-size: 17px; font-weight: 600; color: var(--accent-light); }
-.changeLink    { font-size: 11px; color: var(--text-muted); text-decoration: none; margin-top: 2px; transition: color 0.15s; }
+
+.scheduleLinks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.inlinePauseBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.inlinePauseBtn:hover:not(:disabled) {
+  color: var(--accent-light);
+}
+
+.inlinePauseBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.changeLink    { font-size: 11px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
 .changeLink:hover { color: var(--accent-light); }
 
 .progressTrack {
@@ -84,27 +119,6 @@
 }
 
 .progressCaption { font-size: 11px; color: var(--text-muted); }
-
-/* ── Section head ────────────────────────────────────────────────────────────── */
-.sectionHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.sectionTitle { font-size: 17px; font-weight: 600; }
-.seeAll       { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
-.seeAll:hover { color: var(--accent-light); }
-
-/* ── Source list ─────────────────────────────────────────────────────────────── */
-.sourceList { display: flex; flex-direction: column; gap: 8px; }
-
-.sourceRow  { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; }
-.sourceLeft { display: flex; align-items: center; gap: 12px; }
-.sourceName { font-size: 14px; font-weight: 500; }
-.sourceMeta { display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); }
-.failures   { color: var(--yellow); }
 
 /* ── Empty state ─────────────────────────────────────────────────────────────── */
 .emptyState {
