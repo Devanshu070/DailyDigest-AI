@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { deleteUser, GoogleAuthProvider, reauthenticateWithPopup } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
-import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, deleteAccount, getSources, createSource, deleteSource } from "@/lib/api";
+import { getUserProfile, updateDigestTime, updateInterests, updateDigestPause, deleteAccount } from "@/lib/api";
 import styles from "./page.module.css";
 
 // IST = UTC + 5h30m (330 minutes)
@@ -23,9 +23,6 @@ function istToUtc(istTimeStr) {
   const utcMins = ((totalMins % 1440) + 1440) % 1440;
   return `${String(Math.floor(utcMins / 60)).padStart(2, "0")}:${String(utcMins % 60).padStart(2, "0")}:00`;
 }
-
-const SOURCE_TYPES = ["blog", "youtube", "reddit", "twitter", "rss", "podcast", "other"];
-const TYPE_ICONS = { blog: "✍", youtube: "▶", reddit: "⬆", twitter: "✦", rss: "◎", podcast: "🎙", other: "⊕" };
 
 export default function PreferencesPage() {
   const { user, logout } = useAuth();
@@ -46,15 +43,6 @@ export default function PreferencesPage() {
   const [savingInterests, setSavingInterests] = useState(false);
   const [interestsMsg, setInterestsMsg] = useState(null);
 
-  // Sources
-  const [sources, setSources] = useState([]);
-  const [sourcesLoading, setSourcesLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", type: "blog", url: "" });
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState(null);
-
   const fetchProfile = useCallback(async () => {
     if (!user?.email) return;
     try {
@@ -69,20 +57,7 @@ export default function PreferencesPage() {
     }
   }, [user]);
 
-  const fetchSources = useCallback(async () => {
-    if (!user?.email) return;
-    setSourcesLoading(true);
-    try {
-      const data = await getSources(user.email);
-      setSources(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSourcesLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => { fetchProfile(); fetchSources(); }, [fetchProfile, fetchSources]);
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   const handleSaveTime = async () => {
     setSavingTime(true); setTimeMsg(null);
@@ -141,32 +116,6 @@ export default function PreferencesPage() {
       setAccountMsg({ type: "error", text: e.message });
       setDeletingAccount(false);
     }
-  };
-
-  const handleDelete = async (sourceId) => {
-    setDeletingId(sourceId);
-    try {
-      await deleteSource(user.email, sourceId);
-      setSources(prev => prev.filter(s => s.id !== sourceId));
-    } catch (e) {
-      console.error(e);
-    } finally { setDeletingId(null); }
-  };
-
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    setAdding(true); setAddError(null);
-    try {
-      const created = await createSource(user.email, [form]);
-      setSources(prev => {
-        const existingIds = new Set(prev.map(s => s.id));
-        return [...prev, ...created.filter(s => !existingIds.has(s.id))];
-      });
-      setForm({ name: "", type: "blog", url: "" });
-      setShowForm(false);
-    } catch (e) {
-      setAddError(e.message);
-    } finally { setAdding(false); }
   };
 
   if (loading) {
@@ -241,7 +190,7 @@ export default function PreferencesPage() {
           value={interests}
           onChange={e => setInterests(e.target.value)}
           className={styles.textarea}
-          rows={2}
+          rows={5}
           placeholder={"# My Interests\n\nI care deeply about...\n\n## Skip\n- Crypto / NFT news\n- Celebrity gossip"}
         />
         <div className={styles.formRow}>
@@ -254,114 +203,6 @@ export default function PreferencesPage() {
           <p className={`${styles.msg} ${interestsMsg.type === "error" ? styles.error : styles.success}`}>
             {interestsMsg.text}
           </p>
-        )}
-      </div>
-
-      {/* ── Sources ── */}
-      <div className={`card ${styles.section}`}>
-        <div className={styles.sectionHeader}>
-          <div>
-            <h2 className={styles.sectionTitle}>Sources</h2>
-            <p className={styles.sectionDesc}>Content sources included in your daily digest.</p>
-          </div>
-          <button className="btn-primary" onClick={() => setShowForm(v => !v)}>
-            {showForm ? "✕ Cancel" : "+ Add Source"}
-          </button>
-        </div>
-
-        {/* Add form */}
-        {showForm && (
-          <form className={styles.addForm} onSubmit={handleAdd}>
-            <div className={styles.formGrid}>
-              <div className={styles.field}>
-                <label>Display Name</label>
-                <input
-                  required
-                  placeholder="e.g. Fireship, Anthropic Blog"
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className={styles.input}
-                />
-              </div>
-              <div className={styles.field}>
-                <label>Type</label>
-                <select
-                  value={form.type}
-                  onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-                  className={styles.input}
-                >
-                  {SOURCE_TYPES.map(t => (
-                    <option key={t} value={t}>{TYPE_ICONS[t]} {t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                  ))}
-                </select>
-              </div>
-              <div className={`${styles.field} ${styles.fullWidth}`}>
-                <label>URL / Feed Link</label>
-                <input
-                  required
-                  type="url"
-                  placeholder="https://..."
-                  value={form.url}
-                  onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
-                  className={styles.input}
-                />
-              </div>
-            </div>
-            {addError && <p className={styles.error}>{addError}</p>}
-            <div className={styles.formActions}>
-              <button type="submit" className="btn-primary" disabled={adding}>
-                {adding ? <><span className="spinner" /> Adding…</> : "Add Source"}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Sources list */}
-        {sourcesLoading ? (
-          <div className={styles.list}>
-            {[1, 2].map(i => <div key={i} className={styles.sourceSkeleton} />)}
-          </div>
-        ) : sources.length === 0 ? (
-          <div className={styles.empty}>
-            <p className={styles.emptyIcon}>⊕</p>
-            <p>No sources yet</p>
-            <p className={styles.emptyHint}>Add your first source using the button above.</p>
-          </div>
-        ) : (
-          <div className={styles.list}>
-            {sources.map(source => (
-              <div key={source.id} className={styles.sourceCard}>
-                <div className={styles.sourceIcon}>{TYPE_ICONS[source.type] ?? "⊕"}</div>
-                <div className={styles.sourceInfo}>
-                  <span className={styles.sourceName}>{source.display_name}</span>
-                  <span className={styles.sourceUrl}>{source.url}</span>
-                  <div className={styles.sourceMeta}>
-                    <span className="tag tag-purple">{source.type}</span>
-                    {source.last_fetched_at && (
-                      <span className={styles.lastFetched}>
-                        Last fetched: {new Date(source.last_fetched_at).toLocaleDateString("en-IN", {
-                          day: "numeric", month: "short", year: "numeric"
-                        })}
-                      </span>
-                    )}
-                    {source.failure_count > 0 && (
-                      <span className="tag tag-red">⚠ {source.failure_count} errors</span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  className={styles.deleteBtn}
-                  onClick={() => handleDelete(source.id)}
-                  disabled={deletingId === source.id}
-                  title="Unsubscribe"
-                >
-                  {deletingId === source.id
-                    ? <span className="spinner" style={{ width: 14, height: 14 }} />
-                    : "✕"}
-                </button>
-              </div>
-            ))}
-          </div>
         )}
       </div>
 
