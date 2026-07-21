@@ -9,6 +9,7 @@ import styles from "./Sidebar.module.css";
 const navItems = [
   { href: "/dashboard",   label: "Dashboard",   icon: "⬡" },
   { href: "/pipeline",    label: "Pipeline",    icon: "▶" },
+  { href: "/sources",     label: "Sources",     icon: "⊕" },
   { href: "/articles",    label: "Articles",    icon: "◈" },
   { href: "/preferences", label: "Preferences", icon: "⚙" },
 ];
