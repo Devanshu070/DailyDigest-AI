@@ -8,7 +8,7 @@ SQLAlchemy ORM models so the API surface can evolve independently.
 
 import uuid
 from datetime import datetime, time
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,6 +41,19 @@ class SourceCreate(BaseModel):
 
 class SourceCreateMany(BaseModel):
     sources: list[SourceCreate]
+
+
+class SourceCheckRequest(BaseModel):
+    type: SourceType
+    url: str
+
+
+class SourceCheckResponse(BaseModel):
+    source_id: Optional[uuid.UUID] = None
+    ok: bool
+    status: Literal["healthy", "temporary_error", "invalid_url"]
+    message: str
+    item_count: int = 0
 
 
 # ── Article Schemas ────────────────────────────────────────────────────────────

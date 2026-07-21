@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { getPipelineStatus } from "@/lib/api";
+import { getPipelineStatus, updateDigestPause } from "@/lib/api";
 import styles from "./page.module.css";
 
 function utcToLocal(utcTime) {
@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [status, setStatus]   = useState(null);
   const [loading, setLoading] = useState(true);
+  const [savingPause, setSavingPause] = useState(false);
   const [tick, setTick]       = useState(0);
 
   const fetchStatus = useCallback(async () => {
@@ -60,6 +61,20 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
+  const handleTogglePause = async () => {
+    if (!status || !user?.email) return;
+    const nextPaused = !status.digest_paused;
+    setSavingPause(true);
+    try {
+      const data = await updateDigestPause(user.email, nextPaused);
+      setStatus(prev => ({ ...prev, digest_paused: data.digest_paused }));
+    } catch (e) {
+      console.error("Failed to update pause state:", e);
+    } finally {
+      setSavingPause(false);
+    }
+  };
+
   const minsLeft = status ? minutesUntilNext(status.digest_time) : null;
   const hoursLeft = minsLeft !== null ? Math.floor(minsLeft / 60) : null;
   const minsRem   = minsLeft !== null ? minsLeft % 60 : null;
@@ -80,9 +95,21 @@ export default function DashboardPage() {
             {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
-        <Link href="/pipeline" className="btn-primary" id="run-pipeline-link">
-          ▶ Run Pipeline
-        </Link>
+        <div className={styles.headerActions}>
+          {status && (
+            <button
+              className="btn-ghost"
+              onClick={handleTogglePause}
+              disabled={savingPause}
+              title={status.digest_paused ? "Resume scheduled digests" : "Pause scheduled digests"}
+            >
+              {savingPause ? <><span className="spinner" /> Saving…</> : status.digest_paused ? "▶ Resume Digest" : "⏸ Pause Digest"}
+            </button>
+          )}
+          <Link href="/pipeline" className="btn-primary" id="run-pipeline-link">
+            ▶ Run Pipeline
+          </Link>
+        </div>
       </header>
 
       {/* ── Stats grid ── */}
@@ -122,9 +149,19 @@ export default function DashboardPage() {
             <div className={styles.scheduleInfo}>
               <span className={styles.scheduleLabel}>Scheduled at</span>
               <span className={styles.scheduleTime}>{utcToLocal(status.digest_time)}</span>
-              <Link href="/preferences" className={styles.changeLink}>
-                {status.digest_paused ? "Resume delivery ›" : "Change schedule ›"}
-              </Link>
+              <div className={styles.scheduleLinks}>
+                <button
+                  className={styles.inlinePauseBtn}
+                  onClick={handleTogglePause}
+                  disabled={savingPause}
+                >
+                  {savingPause ? "Saving…" : status.digest_paused ? "Resume delivery ›" : "Pause delivery ›"}
+                </button>
+                <span>•</span>
+                <Link href="/preferences" className={styles.changeLink}>
+                  Change schedule ›
+                </Link>
+              </div>
             </div>
           </div>
           <div className={styles.progressTrack}>
@@ -136,37 +173,6 @@ export default function DashboardPage() {
               : "Progress through current 24-hour window"}
           </p>
         </div>
-      )}
-
-      {/* ── Source health ── */}
-      {!loading && totalSources > 0 && (
-        <section>
-          <div className={styles.sectionHead}>
-            <h2 className={styles.sectionTitle}>Source Health</h2>
-            <Link href="/preferences" className={styles.seeAll}>Manage sources ›</Link>
-          </div>
-          <div className={styles.sourceList}>
-            {status.sources.map(src => (
-              <div key={src.id} className={`card ${styles.sourceRow}`}>
-                <div className={styles.sourceLeft}>
-                  <span className={`tag ${src.is_active ? "tag-green" : "tag-red"}`}>
-                    {src.is_active ? "Active" : "Inactive"}
-                  </span>
-                  <span className={styles.sourceName}>{src.display_name}</span>
-                </div>
-                <div className={styles.sourceMeta}>
-                  {src.last_fetched_at
-                    ? <>Fetched {new Date(src.last_fetched_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</>
-                    : <span style={{ color: "var(--text-muted)" }}>Not fetched yet</span>
-                  }
-                  {src.failure_count > 0 && (
-                    <span className={styles.failures}>⚠ {src.failure_count} failures</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
       )}
 
       {/* ── Empty state ── */}
