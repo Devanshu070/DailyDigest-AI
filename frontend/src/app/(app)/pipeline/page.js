@@ -6,19 +6,20 @@ import { useAuth } from "@/context/AuthContext";
 import { runPipeline, getRunState } from "@/lib/api";
 import styles from "./page.module.css";
 
-const STAGE_STEPS = [
-  { key: "fetching_articles", label: "Fetching Articles" },
-  { key: "cleaning",          label: "Cleaning & Dedup" },
-  { key: "summarizing",       label: "AI Summarizing" },
-  { key: "assembling_digest", label: "Building Digest" },
-  { key: "sending_email",     label: "Sending Email" },
-];
-
 export default function PipelinePage() {
   const { user } = useAuth();
   const [runState, setRunState]       = useState(null);
   const [emailPreview, setEmailPreview] = useState(null); // { html, subject }
   const pollRef = useRef(null);
+
+  const deliveryLabel = runState?.stage === "sending_email" ? "Sending Email" : "Generating Digest";
+  const stageSteps = [
+    { key: "fetching_articles", label: "Fetching Articles" },
+    { key: "cleaning",          label: "Cleaning & Dedup" },
+    { key: "summarizing",       label: "AI Summarizing" },
+    { key: "assembling_digest", label: "Building Digest" },
+    { key: "delivery",          label: deliveryLabel },
+  ];
 
   const startPolling = useCallback(() => {
     if (pollRef.current) return;
@@ -61,7 +62,7 @@ export default function PipelinePage() {
     <div className="animate-fade-in">
       <header className={styles.header}>
         <h1 className={styles.title}>Run Pipeline</h1>
-        <p className={styles.subtitle}>Manually trigger a digest run — bypasses the daily schedule</p>
+        <p className={styles.subtitle}>Manually trigger a digest run — bypasses daily schedule</p>
       </header>
 
       {/* ── Trigger card ── */}
@@ -71,7 +72,7 @@ export default function PipelinePage() {
           <div>
             <h2 className={styles.triggerTitle}>Immediate Run</h2>
             <p className={styles.triggerDesc}>
-              Fetches articles from your sources, AI-summarizes them, assembles a digest, and sends it to your email.
+              Fetches unread articles from your sources (reusing cached articles), AI-summarizes them, and assembles your digest on demand (emails are sent during scheduled runs).
             </p>
           </div>
         </div>
@@ -89,17 +90,20 @@ export default function PipelinePage() {
 
           {/* Stage stepper */}
           <div className={styles.stageRow}>
-            {STAGE_STEPS.map((step, i) => {
-              const currentIdx = STAGE_STEPS.findIndex(s => s.key === runState.stage);
+            {stageSteps.map((step, i) => {
+              const isDeliveryStage = (stage) => stage === "generating_digest" || stage === "sending_email" || stage === "preparing_preview";
+              const currentIdx = stageSteps.findIndex(
+                s => s.key === runState.stage || (s.key === "delivery" && isDeliveryStage(runState.stage))
+              );
               const done    = currentIdx > i || isDone;
-              const current = runState.stage === step.key;
+              const current = runState.stage === step.key || (step.key === "delivery" && isDeliveryStage(runState.stage));
               return (
                 <div key={step.key} className={styles.stageStep}>
                   <div className={`${styles.stepDot}${done ? " " + styles.dotDone : ""}${current ? " " + styles.dotActive : ""}${isError && current ? " " + styles.dotError : ""}`}>
                     {done ? "✓" : i + 1}
                   </div>
                   <span className={`${styles.stepLabel}${current ? " " + styles.labelActive : ""}`}>{step.label}</span>
-                  {i < STAGE_STEPS.length - 1 && (
+                  {i < stageSteps.length - 1 && (
                     <div className={`${styles.stepLine}${done ? " " + styles.lineDone : ""}`} />
                   )}
                 </div>
