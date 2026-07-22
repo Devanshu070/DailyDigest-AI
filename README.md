@@ -94,10 +94,10 @@ uv run python scripts/seed_user.py
 ### 7. Run the pipeline
 
 ```bash
-# To run the pipeline for all users who are currently due for their digest:
+# Scheduled mode (sends email & updates scheduled timestamp):
 uv run python main.py
 
-# To force a manual run for a specific user instantly (bypassing the schedule):
+# Manual mode (generates digest, updates last_digest_at, skips email delivery):
 uv run python main.py --manual --email your@email.com
 ```
 

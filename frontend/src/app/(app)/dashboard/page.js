@@ -127,8 +127,8 @@ export default function DashboardPage() {
                   timeZone: "Asia/Kolkata", day: "numeric", month: "short",
                   hour: "2-digit", minute: "2-digit", hour12: false,
                 })
-              : "Never sent"}
-            sub={status?.last_digest_at ? "Sent successfully" : "Run the pipeline to send one"}
+              : "Never run"}
+            sub={status?.last_digest_at ? "Generated successfully" : "Run the pipeline to generate one"}
           />
           <StatCard icon="📡" label="Sources" value={totalSources} sub={`${healthySources} healthy`} />
           <StatCard icon="✓"  label="Healthy" value={healthySources} sub="Active with no failures" accent="green" />
