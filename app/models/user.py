@@ -4,7 +4,7 @@ app/models/user.py — User model.
 A User is a subscriber of DailyDigest.
 - interests_md:             their personal interest profile (used to personalize the digest)
 - digest_time:              daily delivery time in UTC (e.g. time(6, 0) = 06:00 UTC)
-- last_digest_at:           timestamp of the most recent email sent (scheduled OR manual).
+- last_digest_at:           timestamp of the most recent digest generated or sent (scheduled OR manual).
                             Used by the frontend/API to display "last delivery" information.
 - last_scheduled_digest_at: timestamp of the last SCHEDULED run that successfully sent email.
                             Used exclusively by the scheduler's skip guard to prevent
@@ -41,10 +41,10 @@ class User(TimestampMixin, Base):
         Time(timezone=False), nullable=False, default=time(6, 0)
     )
 
-    # UI-facing timestamp: when we last successfully sent a digest to this user
-    # (whether triggered by the scheduler or a manual API call).
+    # UI-facing timestamp: when a digest was last generated or sent for this user
+    # (scheduled run sent email or manual run generated digest).
     # The frontend reads this to display "last delivery" information.
-    # None = no digest has ever been sent.
+    # None = no digest has ever been generated/sent.
     last_digest_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
