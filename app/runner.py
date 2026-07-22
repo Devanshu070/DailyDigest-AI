@@ -11,21 +11,23 @@ Execution order:
   4. For each due user:
      a. Compute window: [last_scheduled_digest_at → today's digest_time]  (scheduled)
                         [now - 24h              → now               ]    (manual)
-     b. For each subscribed source — fetch only the gap using fetched_till watermark
+     b. For each subscribed source — fetch only the gap using fetched_till watermark (reuse cached articles)
      c. Clean + summarize newly-fetched articles
-     d. Collect ALL summarized articles in the window for this user's sources (cache hits)
+     d. Collect ALL summarized articles in the window for this user's sources (cache hits included)
      e. Assemble personalized digest using user.interests_md
-     f. Send email to user.email → update user.last_digest_at (always)
-                                  + update user.last_scheduled_digest_at (scheduled only)
+     f. Output & Delivery:
+        scheduled: Send email via send_digest() → update last_digest_at + last_scheduled_digest_at
+        manual:    Generate digest & call on_email_ready() → update last_digest_at
+                   (skip send_digest() and do NOT update last_scheduled_digest_at)
 
 Timestamp semantics:
-  last_digest_at           — most recent email sent (scheduled OR manual). Read by the frontend.
+  last_digest_at           — most recent digest generated or sent (scheduled OR manual). Read by the frontend.
   last_scheduled_digest_at — most recent SCHEDULED email sent. Read ONLY by the skip guard
                               to prevent double-delivery. Never updated by manual runs.
 
 Run modes:
-  python main.py            → scheduled mode (snaps to each user's digest_time)
-  python main.py --manual   → manual mode (rolling now-24h → now, runs for all users)
+  python main.py            → scheduled mode (snaps to each user's digest_time, sends email)
+  python main.py --manual   → manual mode (rolling now-24h → now, generates digest, skips email)
 """
 
 import hashlib
@@ -163,6 +165,10 @@ def _run_for_user(
                     "then run the pipeline again.</p>",
                     "No sources configured",
                 )
+            if manual:
+                with get_db() as db:
+                    db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
+                log.info("Manual run for %s: no sources message generated, last_digest_at updated.", user.email)
             return
 
         sources = (
@@ -356,16 +362,24 @@ def _run_for_user(
 
 
     if not all_summaries:
-        log.info("No articles in window for user %s — sending quiet-day email.", user.email)
-        on_stage("sending_email", "Sending quiet-day email…")
+        log.info("No articles in window for user %s — quiet-day digest.", user.email)
         quiet_html = (
             "<h2>Nothing new today 🤫</h2>"
             "<p>None of your subscribed sources published anything in the last 24 hours. "
             "Check back tomorrow!</p>"
         )
-        status_footer = _build_status_footer(sources, failed_sources)
         if on_email_ready:
             on_email_ready(quiet_html, f"Quiet Day — {window_end.date()}")
+
+        if manual:
+            on_stage("generating_digest", "Quiet-day digest generated (email skipped for manual run)")
+            with get_db() as db:
+                db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
+            log.info("Manual run for %s: quiet-day digest generated, last_digest_at updated, email skipped.", user.email)
+            return
+
+        on_stage("sending_email", "Sending quiet-day email…")
+        status_footer = _build_status_footer(sources, failed_sources)
         sent = send_digest(
             html_content=quiet_html,
             digest_date=window_end.date(),
@@ -373,16 +387,14 @@ def _run_for_user(
             recipient_email=user.email,
         )
         if sent:
-            update_fields: dict = {"last_digest_at": window_end}
-            if not manual:
-                # Only update the scheduler's bookkeeping column on scheduled runs
-                update_fields["last_scheduled_digest_at"] = window_end
             with get_db() as db:
-                db.query(User).filter_by(id=user.id).update(update_fields)
+                db.query(User).filter_by(id=user.id).update({
+                    "last_digest_at": window_end,
+                    "last_scheduled_digest_at": window_end,
+                })
             log.info(
-                "Quiet-day email sent to %s — last_digest_at updated%s.",
+                "Quiet-day email sent to %s — last_digest_at and last_scheduled_digest_at updated.",
                 user.email,
-                ", last_scheduled_digest_at updated" if not manual else "",
             )
         return
 
@@ -404,30 +416,34 @@ def _run_for_user(
         log.error("Digest assembly failed for user %s: %s", user.email, exc)
         raise  # let _run_pipeline_background catch it and call _run_state.fail()
 
-    # ── Step 6: Send email → update last_digest_at ──────────────────────────
-    on_stage("sending_email", "Sending email…")
+    # ── Step 6: Output / Email Delivery ───────────────────────────────────────
     if on_email_ready:
         on_email_ready(digest_result.html_content, f"Your DailyDigest for {window_end.date()}")
-    status_footer = _build_status_footer(sources, failed_sources)
-    sent = send_digest(
-        html_content=digest_result.html_content,
-        digest_date=window_end.date(),
-        status_footer=status_footer,
-        recipient_email=user.email,
-    )
 
-    if sent:
-        update_fields: dict = {"last_digest_at": window_end}
-        if not manual:
-            # Only update the scheduler's bookkeeping column on scheduled runs
-            update_fields["last_scheduled_digest_at"] = window_end
+    if manual:
+        on_stage("generating_digest", "Digest generated (email skipped for manual run)")
         with get_db() as db:
-            db.query(User).filter_by(id=user.id).update(update_fields)
-        log.info(
-            "Digest sent to %s — last_digest_at updated%s.",
-            user.email,
-            ", last_scheduled_digest_at updated" if not manual else "",
+            db.query(User).filter_by(id=user.id).update({"last_digest_at": window_end})
+        log.info("Manual run for %s: digest generated, last_digest_at updated, email skipped.", user.email)
+    else:
+        on_stage("sending_email", "Sending email…")
+        status_footer = _build_status_footer(sources, failed_sources)
+        sent = send_digest(
+            html_content=digest_result.html_content,
+            digest_date=window_end.date(),
+            status_footer=status_footer,
+            recipient_email=user.email,
         )
+        if sent:
+            with get_db() as db:
+                db.query(User).filter_by(id=user.id).update({
+                    "last_digest_at": window_end,
+                    "last_scheduled_digest_at": window_end,
+                })
+            log.info(
+                "Digest email sent to %s — last_digest_at and last_scheduled_digest_at updated.",
+                user.email,
+            )
 
     log.info(
         "Pipeline complete for %s | %d sources ok / %d failed | "
