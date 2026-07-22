@@ -2,8 +2,8 @@
 main.py — Entry point for the DailyDigest pipeline.
 
 Usage:
-  python main.py             # scheduled mode: snaps window to cron time
-  python main.py --manual    # manual/on-demand mode: rolling now-24h → now window
+  python main.py             # scheduled mode: sends emails & updates scheduled timestamp
+  python main.py --manual    # manual/on-demand mode: rolling now-24h window, generates digest, skips email
 """
 import argparse
 import logging
@@ -18,8 +18,9 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "Run in manual/on-demand mode: uses a rolling 24h window (now-24h → now). "
-            "Default (scheduled) mode snaps the window to the configured cron time."
+            "Run in manual/on-demand mode: uses a rolling 24h window (now-24h → now), "
+            "generates digest, updates last_digest_at, and skips email sending. "
+            "Default (scheduled) mode snaps window to cron time and sends email."
         ),
     )
     parser.add_argument(
