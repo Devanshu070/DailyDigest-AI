@@ -10,7 +10,7 @@ A multi-user AI-powered news aggregator that ingests content from YouTube channe
 2. **Cleans** raw content and removes boilerplate
 3. **Summarizes** each article independently using an LLM — content-agnostic, no user context at this stage
 4. **Assembles** a personalized digest for each user: a second, larger LLM reads all the per-article summaries alongside their interest profile and acts as a personal research assistant — filtering out low-signal noise, merging duplicate coverage, and writing a curated briefing tailored specifically to them
-5. **Emails** the digest as a formatted HTML email via [Resend](https://resend.com)
+5. **Emails** the digest as a formatted HTML email via Gmail SMTP
 
 Designed to run on a recurring cron schedule, it automatically manages rolling 24-hour ingestion windows for each subscriber.
 
@@ -20,10 +20,11 @@ Designed to run on a recurring cron schedule, it automatically manages rolling 2
 
 | Layer       | Technology                        |
 |-------------|-----------------------------------|
-| Language    | Python 3.12+                      |
+| Language    | Python 3.12+ / Node.js 18+        |
+| Frontend    | Next.js (App Router), React       |
 | Database    | PostgreSQL via SQLAlchemy + Alembic |
 | LLM         | Groq (Llama 4 Scout + GPT-OSS, swappable) |
-| Email       | Resend                            |
+| Email       | Gmail SMTP                        |
 | Package mgr | [uv](https://docs.astral.sh/uv/)  |
 | Local DB    | Docker Compose                    |
 
@@ -32,15 +33,16 @@ Designed to run on a recurring cron schedule, it automatically manages rolling 2
 ## Project structure
 
 ```
-app/
+app/              # FastAPI backend & pipeline logic
   ingestion/      # YouTube + blog ingesters
   processing/     # Content cleaning + token estimation
   digest/         # Step 1 summarization + Step 2 digest assembly
-  email/          # Markdown → HTML + Resend delivery
+  email/          # Markdown → HTML + Gmail SMTP delivery
   llm/            # BaseLLMProvider + Anthropic/OpenAI implementations
   models/         # SQLAlchemy ORM models
   prompts/        # user_interests.md — edit this to personalize your digest
   utils/          # Shared helpers
+frontend/         # Next.js web application (Dashboard, Pipeline, Sources, Articles)
 docker/           # PostgreSQL docker-compose
 scripts/          # One-off operational scripts
 migrations/       # Alembic migrations
@@ -101,6 +103,19 @@ uv run python main.py
 uv run python main.py --manual --email your@email.com
 ```
 
+### 8. Web App & Pipeline Monitoring
+
+Run the Next.js frontend to manage sources, interests, and trigger pipeline runs via UI:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+- **Pipeline Page**: Triggers on-demand runs with live progress step tracking and inline HTML email previews.
+- **State Rehydration**: If you navigate away to Dashboard or Sources while a pipeline is running or completed, returning to the Pipeline page automatically restores the active progress, email preview, and polling status without triggering duplicate runs.
+
 ---
 
 ## Automation (GitHub Actions)
@@ -122,7 +137,8 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 |--------|-------------|
 | `DATABASE_URL` | Your hosted PostgreSQL URL (Supabase / Neon / Railway) |
 | `GROQ_API_KEY` | Your Groq API key |
-| `RESEND_API_KEY` | Your Resend API key |
+| `GMAIL_SENDER` | Your sender Gmail address |
+| `GMAIL_APP_PASSWORD` | Your 16-character Gmail App Password |
 | `DIGEST_RECIPIENT_EMAIL` | The email address to deliver the digest to |
 
 > **Note:** The `DATABASE_URL` must point to a cloud-hosted PostgreSQL instance, not `localhost`. GitHub Actions runners cannot reach your local Docker database.
