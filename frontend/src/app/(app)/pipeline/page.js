@@ -8,7 +8,7 @@ import styles from "./page.module.css";
 
 export default function PipelinePage() {
   const { user } = useAuth();
-  const [runState, setRunState]       = useState(null);
+  const [runState, setRunState]         = useState(null);
   const [emailPreview, setEmailPreview] = useState(null); // { html, subject }
   const pollRef = useRef(null);
 
@@ -21,15 +21,20 @@ export default function PipelinePage() {
     { key: "delivery",          label: deliveryLabel },
   ];
 
+  /** Shared helper: apply a run-state snapshot to both pieces of UI state. */
+  const applyState = useCallback((state) => {
+    setRunState(state);
+    if (state.email_html) {
+      setEmailPreview(prev => prev ?? { html: state.email_html, subject: state.email_subject });
+    }
+  }, []);
+
   const startPolling = useCallback(() => {
     if (pollRef.current) return;
     pollRef.current = setInterval(async () => {
       try {
         const state = await getRunState();
-        setRunState(state);
-        if (state.email_html) {
-          setEmailPreview(prev => prev ?? { html: state.email_html, subject: state.email_subject });
-        }
+        applyState(state);
         if (!state.is_running) {
           clearInterval(pollRef.current);
           pollRef.current = null;
@@ -38,18 +43,40 @@ export default function PipelinePage() {
         console.error(e);
       }
     }, 2000);
-  }, []);
+  }, [applyState]);
 
+  /** On mount: restore any in-progress (or finished) run from the backend. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await getRunState();
+        if (cancelled || !state || state.stage === "idle") return;
+        applyState(state);
+        if (state.is_running) {
+          startPolling();
+        }
+      } catch (e) {
+        // If the endpoint is unavailable on first load, stay in idle silently.
+        console.error("Failed to restore run state:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount
+
+  /** Cleanup: stop polling when the component unmounts. */
   useEffect(() => () => clearInterval(pollRef.current), []);
 
   const handleRun = async () => {
     setEmailPreview(null);
-    setRunState({ stage: "fetching_articles", label: "Starting…", progress_pct: 5, is_running: true });
+    const initialState = { stage: "fetching_articles", label: "Starting…", progress_pct: 5, is_running: true };
+    applyState(initialState);
     try {
       await runPipeline(user.email);
       startPolling();
     } catch (e) {
-      setRunState({ stage: "error", label: e.message, progress_pct: 100, is_running: false });
+      applyState({ stage: "error", label: e.message, progress_pct: 100, is_running: false });
     }
   };
 
