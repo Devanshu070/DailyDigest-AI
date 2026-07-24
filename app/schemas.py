@@ -56,6 +56,25 @@ class SourceCheckResponse(BaseModel):
     item_count: int = 0
 
 
+# ── Source Suggestion Schemas ──────────────────────────────────────────────────
+
+class SourceSuggestion(BaseModel):
+    """A single recommended source returned by the suggestions pipeline."""
+
+    name: str
+    url: str
+    source_type: SourceType
+    recommendation_reason: str
+
+
+class SourceSuggestionsResponse(BaseModel):
+    """Response envelope for GET /sources/suggestions."""
+
+    suggestions: list[SourceSuggestion]
+    cached: bool          # True when the result was served from the in-memory cache
+    generated_at: datetime
+
+
 # ── Article Schemas ────────────────────────────────────────────────────────────
 
 class ArticleListItem(BaseModel):
