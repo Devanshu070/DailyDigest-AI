@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     # Firebase project ID — used to verify Firebase ID tokens for account deletion.
     firebase_project_id: str = ""
 
+    # Exa Search API — used for interest-based source suggestions.
+    # Optional: if absent the suggestions endpoint returns an empty list.
+    # Get a free key at https://dashboard.exa.ai
+    exa_api_key: str = ""
+
     # Gmail SMTP — email delivery
     gmail_sender: str       # your Gmail address, e.g. you@gmail.com
     gmail_app_password: str # 16-char App Password (not your account password)
