@@ -6,6 +6,7 @@ All endpoints require ?email= to identify the user.
 GET    /api/v1/sources              → List sources the user is subscribed to (with their display names)
 POST   /api/v1/sources              → Add one or more sources and subscribe the user to each
 DELETE /api/v1/sources/{id}         → Unsubscribe the user from a source (global record is kept)
+GET    /api/v1/sources/suggestions  → AI-powered source suggestions based on user interests
 
 Design notes:
   - Sources are globally unique, de-duplicated by normalized URL.
@@ -16,7 +17,7 @@ Design notes:
 import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -30,37 +31,18 @@ from app.schemas import (
     SourceCheckResponse,
     SourceCreateMany,
     SourceResponse,
+    SourceSuggestionsResponse,
 )
 from app.api.routes.users import get_or_create_user
+from app.utils.url_validation import normalize_url
 
 router = APIRouter(prefix="/sources", tags=["Sources"])
 log = logging.getLogger(__name__)
 
 
 # ── URL normalisation ──────────────────────────────────────────────────────────
-
-def _normalize_url(raw: str) -> str:
-    """
-    Canonicalize a URL so equivalent inputs map to a single source record.
-
-    Rules:
-      - Lowercase scheme and host
-      - Strip leading 'www.'
-      - Strip trailing slash from path
-      - Preserve query string and fragment as-is
-
-    YouTube channel-ID resolution is left as a future enhancement.
-    """
-    parsed = urlparse(raw.strip())
-    scheme = (parsed.scheme or "https").lower()
-    netloc = (parsed.netloc or parsed.path).lower()
-    # Use startswith to strip exactly "www." — lstrip would incorrectly strip
-    # any leading combination of 'w' and '.' characters.
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    host   = netloc
-    path   = parsed.path.rstrip("/") if parsed.netloc else ""
-    return urlunparse((scheme, host, path, parsed.params, parsed.query, parsed.fragment))
+# normalize_url is imported from app.utils.url_validation — single source of
+# truth shared with the source suggestions pipeline.
 
 
 # ── Helper: build SourceResponse from ORM row + alias name ────────────────────
@@ -198,7 +180,7 @@ def create_and_subscribe(
     result: list[SourceResponse] = []
 
     for item in body.sources:
-        canonical_url = _normalize_url(item.url)
+        canonical_url = normalize_url(item.url)
 
         # Find or create the global Source record (no name — URL is the identity)
         source = db.query(Source).filter_by(url=canonical_url).first()
@@ -312,3 +294,108 @@ def unsubscribe_source(
         )
 
     db.delete(alias)
+
+
+# ── Source Suggestions ─────────────────────────────────────────────────────────
+
+def _build_suggestion_service():
+    """
+    Factory that constructs the module-level SuggestionService singleton.
+
+    Called once at import time. All pipeline dependencies are wired here so
+    the API route stays thin (no business logic).
+    """
+    import logging as _logging
+
+    from app.config import settings
+    from app.llm import llm_assembler
+    from app.recommendations.service import RecommendationService
+    from app.suggestions.service import SuggestionService
+    from app.utils.suggestion_validation import SuggestionValidator
+
+    _log = _logging.getLogger(__name__)
+
+    if settings.exa_api_key:
+        from app.search.exa import ExaSearchProvider
+        search_provider = ExaSearchProvider(api_key=settings.exa_api_key)
+        _log.info("SuggestionService: using ExaSearchProvider")
+    else:
+        # No API key — use a no-op provider so the endpoint still returns []
+        # gracefully without raising at startup.
+        from app.search.base import SearchProvider, SearchResult as _SR
+
+        class _NoOpSearchProvider(SearchProvider):
+            def search(self, query: str, num_results: int = 5) -> list[_SR]:
+                _log.warning(
+                    "SuggestionService: EXA_API_KEY is not configured — "
+                    "returning empty suggestions."
+                )
+                return []
+
+        search_provider = _NoOpSearchProvider()
+
+    return SuggestionService(
+        search_provider=search_provider,
+        recommendation_service=RecommendationService(llm=llm_assembler),
+        validator=SuggestionValidator(),
+    )
+
+
+# Module-level singleton — instantiated once, reused across all requests.
+_suggestion_service: "SuggestionService | None" = None  # type: ignore[name-defined]
+
+
+def get_suggestion_service():
+    """FastAPI dependency that returns the shared SuggestionService instance."""
+    global _suggestion_service
+    if _suggestion_service is None:
+        from app.suggestions.service import SuggestionService as _SS
+        _suggestion_service = _build_suggestion_service()
+    return _suggestion_service
+
+
+@router.get("/suggestions", response_model=SourceSuggestionsResponse)
+def get_source_suggestions(
+    email: str = Query(..., description="User email"),
+    refresh: bool = Query(False, description="Bypass cache and regenerate suggestions"),
+    db: Session = Depends(get_db_session),
+    suggestion_service=Depends(get_suggestion_service),
+):
+    """
+    Return personalised source suggestions based on the user's interests.
+
+    Flow:
+      1. Load user and their existing subscriptions.
+      2. Pass interests + subscriptions to SuggestionService.
+      3. SuggestionService runs: query gen → Exa search → LLM ranking → validation.
+      4. Results are cached for 24 h per user; pass ?refresh=true to force regeneration.
+
+    Graceful degradation:
+      - EXA_API_KEY absent → empty suggestion list (HTTP 200, no 500).
+      - Empty interests_md → empty suggestion list (HTTP 200, no 500).
+    """
+    from app.recommendations.service import SubscribedSource
+
+    user = get_or_create_user(email, db)
+
+    # Load existing subscriptions (name + normalised URL)
+    rows = (
+        db.query(Source.url, UserSourceAlias.display_name)
+        .join(
+            UserSourceAlias,
+            (UserSourceAlias.source_id == Source.id)
+            & (UserSourceAlias.user_id == user.id),
+        )
+        .all()
+    )
+    subscriptions = [
+        SubscribedSource(name=display_name, url=url)
+        for url, display_name in rows
+    ]
+
+    return suggestion_service.suggest(
+        user_id=user.id,
+        interests_md=user.interests_md,
+        subscriptions=subscriptions,
+        refresh=refresh,
+    )
