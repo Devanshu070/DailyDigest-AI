@@ -89,6 +89,12 @@ export const testAllSources = (email) =>
     method: "POST",
   });
 
+export const getSourceSuggestions = (email, refresh = false) =>
+  authFetch(
+    `/api/v1/sources/suggestions?email=${encodeURIComponent(email)}&refresh=${refresh}`
+  );
+
+
 // ── Articles ─────────────────────────────────────────────────────────────────
 export const getArticles = (email, limit = 20, offset = 0) =>
   authFetch(
