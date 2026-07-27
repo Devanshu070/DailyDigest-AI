@@ -92,7 +92,7 @@ def test_duplicate_url_removed() -> None:
         ),
         SourceSuggestion(
             name="Blog 1 Duplicate",
-            url="http://www.example.com/feed",
+            url="https://www.example.com/feed",
             source_type=SourceType.blog,
             recommendation_reason="Reason 2",
         ),
@@ -150,10 +150,10 @@ def test_already_subscribed_removed() -> None:
 def test_unsupported_type_rejected() -> None:
     validator = SuggestionValidator()
     suggestions = [
-        SourceSuggestion(
+        SourceSuggestion.model_construct(
             name="Podcast",
             url="https://podcast.com/rss",
-            source_type="podcast",  # Unsupported type
+            source_type="podcast",  # Unsupported type via construct
             recommendation_reason="Reason",
         ),
         SourceSuggestion(
