@@ -12,6 +12,8 @@ import {
   testAllSources,
 } from "@/lib/api";
 import styles from "./page.module.css";
+import SourceSuggestionsModal from "@/components/SourceSuggestionsModal";
+
 
 const SOURCE_TYPES = ["blog", "youtube"];
 const TYPE_LABELS = { blog: "Blog / Article", youtube: "YouTube" };
@@ -49,6 +51,22 @@ export default function SourcesPage() {
   const [testResults, setTestResults] = useState({});
   const [testingAll, setTestingAll] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+
+  const handleBulkAddSuggestions = async (selectedSuggestions) => {
+    if (!selectedSuggestions || selectedSuggestions.length === 0) return;
+    const payload = selectedSuggestions.map((s) => ({
+      name: s.name,
+      type: s.source_type,
+      url: s.url,
+    }));
+    const created = await createSource(user.email, payload);
+    setSources((prev) => {
+      const existingIds = new Set(prev.map((item) => item.id));
+      return [...prev, ...created.filter((item) => !existingIds.has(item.id))];
+    });
+  };
+
 
   const updateForm = (changes) => {
     setForm(current => ({ ...current, ...changes }));
@@ -180,6 +198,12 @@ export default function SourcesPage() {
             <p className={styles.sectionDesc}>Content sources included in your daily digest.</p>
           </div>
           <div className={styles.headerActions}>
+            <button
+              className="btn-ghost"
+              onClick={() => setShowSuggestionsModal(true)}
+            >
+              ✦ Suggest Sources
+            </button>
             {sources.length > 0 && (
               <button className="btn-ghost" onClick={handleTestAll} disabled={testingAll}>
                 {testingAll ? <><span className="spinner" /> Testing…</> : "Test all sources"}
@@ -189,6 +213,7 @@ export default function SourcesPage() {
               {showForm ? "✕ Cancel" : "+ Add Source"}
             </button>
           </div>
+
         </div>
 
         {bulkResult && <p className={styles.bulkResult}>{bulkResult}</p>}
@@ -303,6 +328,14 @@ export default function SourcesPage() {
           </div>
         )}
       </div>
+
+      <SourceSuggestionsModal
+        userEmail={user?.email}
+        isOpen={showSuggestionsModal}
+        onClose={() => setShowSuggestionsModal(false)}
+        onAddSelected={handleBulkAddSuggestions}
+      />
     </div>
   );
 }
+
