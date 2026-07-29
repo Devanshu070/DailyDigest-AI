@@ -18,7 +18,7 @@ __all__ = ["llm_summarizer", "llm_assembler", "get_provider", "BaseLLMProvider",
 # ---------------------------------------------------------------------------
 # Model selection
 # ---------------------------------------------------------------------------
-_MODEL_SUMMARIZER = "meta-llama/llama-4-scout-17b-16e-instruct"  # fast, cheap — for reading long transcripts
+_MODEL_SUMMARIZER = "openai/gpt-oss-20b"                         # fast, efficient — for reading long transcripts
 _MODEL_ASSEMBLER  = "openai/gpt-oss-120b"                        # smart, large — for reasoning & filtering
 
 
