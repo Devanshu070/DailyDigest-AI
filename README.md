@@ -1,60 +1,66 @@
 # DailyDigest-AI
 
-A multi-user AI-powered news aggregator that ingests content from YouTube channels and blog RSS feeds, summarizes each article with an LLM, assembles personalized daily digests, and delivers them to your subscribers' inboxes every morning.
+DailyDigest-AI is a multi-user, AI-powered digest application. Users subscribe to YouTube channels and blog/article sources, maintain a personal interest profile, and receive a curated HTML digest by email during scheduled runs.
 
----
+The web application also supports source management, source readability checks, AI-assisted source suggestions, digest pausing, article browsing, and on-demand digest previews.
 
-## What it does
+## How it works
 
-1. **Ingests** articles from YouTube (via RSS) and blog feeds (HTML scraping)
-2. **Cleans** raw content and removes boilerplate
-3. **Summarizes** each article independently using an LLM — content-agnostic, no user context at this stage
-4. **Assembles** a personalized digest for each user: a second, larger LLM reads all the per-article summaries alongside their interest profile and acts as a personal research assistant — filtering out low-signal noise, merging duplicate coverage, and writing a curated briefing tailored specifically to them
-5. **Emails** the digest as a formatted HTML email via Gmail SMTP
+1. **Ingestion** fetches items from YouTube feeds and blog/article feeds.
+2. **Cleaning** extracts usable content and removes boilerplate.
+3. **Summarization** generates an independent summary for each article.
+4. **Assembly** uses the user's interest profile to select, combine, and order relevant summaries into a personalized digest.
+5. **Delivery** renders the digest as HTML and sends it through Gmail SMTP during scheduled runs.
 
-Designed to run on a recurring cron schedule, it automatically manages rolling 24-hour ingestion windows for each subscriber.
-
----
+Sources are globally deduplicated by canonical URL. A source is shared across users, while each user's subscription and display name are stored in `user_source_aliases`.
 
 ## Stack
 
-| Layer       | Technology                        |
-|-------------|-----------------------------------|
-| Language    | Python 3.12+ / Node.js 18+        |
-| Frontend    | Next.js (App Router), React       |
-| Database    | PostgreSQL via SQLAlchemy + Alembic |
-| LLM         | Groq (Llama 4 Scout + GPT-OSS, swappable) |
-| Email       | Gmail SMTP                        |
-| Package mgr | [uv](https://docs.astral.sh/uv/)  |
-| Local DB    | Docker Compose                    |
-
----
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.12+, FastAPI, Uvicorn |
+| Frontend | Next.js App Router, React |
+| Database | PostgreSQL, SQLAlchemy, Alembic |
+| LLM provider | Groq (`openai/gpt-oss-20b` for article summaries, `openai/gpt-oss-120b` for digest assembly) |
+| Search | Exa, optional for interest-based source suggestions |
+| Email | Gmail SMTP with an App Password |
+| Authentication | Firebase Authentication in the frontend; Firebase ID-token verification for account deletion |
+| Package managers | `uv` for Python, `npm` for the frontend |
+| Local database | Docker Compose |
 
 ## Project structure
 
+```text
+app/
+  api/                 FastAPI application, authentication, and API routes
+    routes/            users, sources, articles, health, and pipeline endpoints
+  digest/              Article summarization, digest assembly, and digest models
+  email/               Digest HTML rendering and Gmail SMTP delivery
+  ingestion/           Blog/article and YouTube ingestion adapters
+  llm/                 Provider abstraction and Groq/OpenAI/Anthropic adapters
+  models/              SQLAlchemy models and processing-status definitions
+  processing/          Content cleaning and token estimation
+  prompts/             Default interest-profile prompt
+  recommendations/     Candidate-source ranking and fallback recommendations
+  search/              Search-provider abstraction and Exa integration
+  utils/               URL validation, suggestion validation, and shared helpers
+  runner.py            Scheduled and manual pipeline orchestration
+frontend/
+  src/app/             Dashboard, sources, articles, preferences, and pipeline pages
+  src/components/     Shared UI components, including source suggestions
+  src/context/        Firebase authentication context
+  src/lib/             API client and Firebase setup
+docker/                Local PostgreSQL Docker Compose configuration
+migrations/            Alembic environment and database migrations
+tests/                 Automated tests
+docs/                  Architecture and pipeline documentation
+main.py                CLI entry point for the digest pipeline
+server.py              Local FastAPI development entry point
 ```
-app/              # FastAPI backend & pipeline logic
-  ingestion/      # YouTube + blog ingesters
-  processing/     # Content cleaning + token estimation
-  digest/         # Step 1 summarization + Step 2 digest assembly
-  email/          # Markdown → HTML + Gmail SMTP delivery
-  llm/            # BaseLLMProvider + Anthropic/OpenAI implementations
-  models/         # SQLAlchemy ORM models
-  prompts/        # user_interests.md — edit this to personalize your digest
-  utils/          # Shared helpers
-frontend/         # Next.js web application (Dashboard, Pipeline, Sources, Articles)
-docker/           # PostgreSQL docker-compose
-scripts/          # One-off operational scripts
-migrations/       # Alembic migrations
-docs/             # Architecture + pipeline documentation
-main.py           # Entrypoint
-```
 
----
+## Local setup
 
-## Getting started
-
-### 1. Clone and install
+### 1. Install dependencies
 
 ```bash
 git clone https://github.com/Devanshu070/DailyDigest-AI.git
@@ -62,50 +68,71 @@ cd DailyDigest-AI
 uv sync
 ```
 
-### 2. Configure environment
+### 2. Configure the backend
+
+Copy the example environment file and fill in the values:
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys and database URL
 ```
 
-### 3. Start the database
+Required backend variables:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `GROQ_API_KEY` | Groq API access for summarization and assembly |
+| `GMAIL_SENDER` | Gmail address used to send digests |
+| `GMAIL_APP_PASSWORD` | Gmail App Password, not the account password |
+| `DIGEST_RECIPIENT_EMAIL` | Default CLI/manual-run target email |
+
+Optional variables:
+
+| Variable | Purpose |
+|---|---|
+| `EXA_API_KEY` | Enables Exa-backed source discovery; suggestions degrade gracefully without it |
+| `FIREBASE_PROJECT_ID` | Enables backend verification for account deletion |
+
+Never commit `.env`, API keys, Gmail credentials, or Firebase service-account credentials.
+
+### 3. Start PostgreSQL and apply migrations
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
-```
-
-### 4. Run migrations
-
-```bash
 uv run alembic upgrade head
 ```
 
-### 5. Seed sources
+The database migrations create the user, source, article, digest, and subscription tables. Apply migrations before starting the backend or running the pipeline against a new database.
+
+### 4. Start the backend
 
 ```bash
-uv run python scripts/seed_sources.py
+uv run python server.py
 ```
 
-### 6. Seed user profile
+The local API is available at `http://localhost:8000`.
 
-```bash
-uv run python scripts/seed_user.py
+- OpenAPI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- Health: `http://localhost:8000/api/v1/health`
+
+### 5. Configure and start the frontend
+
+Create `frontend/.env.local` using the Firebase web-app configuration from Firebase Console:
+
+```dotenv
+NEXT_PUBLIC_FIREBASE_API_KEY=...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+NEXT_PUBLIC_FIREBASE_APP_ID=...
+
+# Leave empty locally; Next.js proxies /api requests to localhost:8000.
+NEXT_PUBLIC_API_URL=
 ```
 
-### 7. Run the pipeline
-
-```bash
-# Scheduled mode (sends email & updates scheduled timestamp):
-uv run python main.py
-
-# Manual mode (generates digest, updates last_digest_at, skips email delivery):
-uv run python main.py --manual --email your@email.com
-```
-
-### 8. Web App & Pipeline Monitoring
-
-Run the Next.js frontend to manage sources, interests, and trigger pipeline runs via UI:
+Then run:
 
 ```bash
 cd frontend
@@ -113,66 +140,98 @@ npm install
 npm run dev
 ```
 
-- **Pipeline Page**: Triggers on-demand runs with live progress step tracking and inline HTML email previews.
-- **State Rehydration**: If you navigate away to Dashboard or Sources while a pipeline is running or completed, returning to the Pipeline page automatically restores the active progress, email preview, and polling status without triggering duplicate runs.
+The frontend is available at `http://localhost:3000`. In production, set `NEXT_PUBLIC_API_URL` to the deployed FastAPI URL.
 
----
+## Running the pipeline
 
-## Automation (GitHub Actions)
+### Scheduled mode
 
-The pipeline runs automatically via GitHub Actions **every 8 hours**. During each run, it checks the `users` table and processes a digest for anyone whose personal `digest_time` has recently passed.
+```bash
+uv run python main.py
+```
 
-### Changing the action frequency
-By default it runs every 8 hours (`0 */8 * * *`). If you only have users in a specific timezone, you can adjust this frequency by editing [`.github/workflows/daily_digest.yml`](.github/workflows/daily_digest.yml):
+Scheduled mode:
+
+- processes active users whose configured UTC `digest_time` is due;
+- skips users whose scheduled delivery is paused;
+- fetches missing source content, reuses cached articles, and builds the digest;
+- sends the email through Gmail SMTP;
+- updates both `last_digest_at` and `last_scheduled_digest_at` after successful delivery.
+
+### Manual preview mode
+
+```bash
+uv run python main.py --manual --email user@example.com
+```
+
+Manual mode is intended for an on-demand preview from the web UI, API, or CLI. It uses a rolling 24-hour window, generates the digest HTML, calls the preview callback when used through the API, and does **not** send email. A successful manual run updates `last_digest_at` but never updates `last_scheduled_digest_at`, so it does not suppress the next scheduled delivery.
+
+The API starts manual runs asynchronously:
+
+```text
+POST /api/v1/pipeline/run?manual=true&email=user@example.com
+GET  /api/v1/pipeline/run-state
+```
+
+The pipeline state is held in memory by the API process. The Pipeline page restores the active run state when revisited while that backend process is still running.
+
+## Web features
+
+- **Dashboard:** digest status, latest articles, and source overview.
+- **Sources:** add or remove blog/article and YouTube sources, set a personal display name, check one source, or check all sources.
+- **Suggested sources:** generate source recommendations from the user's interest profile and select recommendations before adding them.
+- **Articles:** browse subscribed-source articles and inspect summaries when available.
+- **Preferences:** edit interests, configure the daily UTC delivery time, pause/resume scheduled delivery, and delete the PostgreSQL account.
+- **Pipeline:** trigger a manual run and view its progress and generated HTML preview.
+
+Firebase Authentication manages frontend sign-in. Application users, subscriptions, preferences, sources, and articles remain in PostgreSQL; the backend uses the Firebase ID token specifically to authorize account deletion.
+
+## GitHub Actions delivery
+
+`.github/workflows/daily_digest.yml` runs the scheduled pipeline every eight hours:
+
 ```yaml
 schedule:
-  - cron: "0 */8 * * *"  # ← change this line
+  - cron: "0 */8 * * *"
 ```
-Use [crontab.guru](https://crontab.guru) to build your expression. Times are always in UTC.
 
-### Required GitHub Secrets
-Go to **Settings → Secrets and variables → Actions** in your GitHub repo and add:
+The workflow invokes `uv run python main.py`, so it uses scheduled delivery semantics and can send email. `workflow_dispatch` runs that same scheduled command immediately; it is not the manual preview mode used by the web UI.
 
-| Secret | Description |
-|--------|-------------|
-| `DATABASE_URL` | Your hosted PostgreSQL URL (Supabase / Neon / Railway) |
-| `GROQ_API_KEY` | Your Groq API key |
-| `GMAIL_SENDER` | Your sender Gmail address |
-| `GMAIL_APP_PASSWORD` | Your 16-character Gmail App Password |
-| `DIGEST_RECIPIENT_EMAIL` | The email address to deliver the digest to |
+Configure these repository secrets under **Settings → Secrets and variables → Actions**:
 
-> **Note:** The `DATABASE_URL` must point to a cloud-hosted PostgreSQL instance, not `localhost`. GitHub Actions runners cannot reach your local Docker database.
+| Secret | Purpose |
+|---|---|
+| `DATABASE_URL` | Hosted PostgreSQL connection string |
+| `GROQ_API_KEY` | Groq API key |
+| `GMAIL_SENDER` | Gmail sender address |
+| `GMAIL_APP_PASSWORD` | Gmail App Password |
+| `DIGEST_RECIPIENT_EMAIL` | Default recipient used by the CLI configuration |
 
-### Manual runs
-You can also trigger the pipeline on-demand from the **Actions** tab on GitHub without waiting for the scheduled time.
+The workflow also runs `uv run alembic upgrade head` before the pipeline. Use a hosted PostgreSQL URL; a local Docker database is not reachable from GitHub-hosted runners.
 
----
+## Tests and checks
 
-## Personalization & Multi-User
+Run the available automated tests with:
 
-DailyDigest-AI is now fully database-driven. To manage personalization, you add profiles to the `users` table:
-
-### 1. `scripts/seed_user.py` — Create subscribers
-This script makes it incredibly easy to bootstrap your database user profile from your `.env` and `user_interests.md` files, and automatically subscribes you to all active sources.
 ```bash
-uv run python scripts/seed_user.py --email user@example.com
+uv run pytest
 ```
 
-### 2. `users.interests_md` — Interest profile
-This database column is the sole input to the digest assembly step — the LLM uses it to decide which articles to include, which to skip, how to merge overlapping coverage, and how to frame each snippet. Write it as if you are briefing a personal research assistant.
+For frontend checks:
 
-*(Note: If a user's `interests_md` is empty, the system falls back to the static `app/prompts/user_interests.md` file).*
+```bash
+cd frontend
+npm run lint
+npm run build
+```
 
----
+## Documentation
 
-## Docs
-
-- [`docs/architecture_final.md`](docs/architecture_final.md) — System architecture diagrams (ER, sequence, class, state machine)
-- [`docs/dev_architecture.md`](docs/dev_architecture.md) — Developer reference: modules, pipeline, invariants
-- [`docs/example_pipeline.md`](docs/example_pipeline.md) — End-to-end worked example with sample inputs/outputs
-- [`docs/data_flow.md`](docs/data_flow.md) — Step-by-step data flow through the pipeline
-
----
+- [`docs/architecture_final.md`](docs/architecture_final.md) — architecture diagrams
+- [`docs/dev_architecture.md`](docs/dev_architecture.md) — developer module and pipeline reference
+- [`docs/example_pipeline.md`](docs/example_pipeline.md) — worked pipeline example
+- [`docs/data_flow.md`](docs/data_flow.md) — end-to-end data flow
+- [`docs/implementation.md`](docs/implementation.md) — implementation notes
 
 ## License
 
