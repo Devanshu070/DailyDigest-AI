@@ -68,10 +68,58 @@ Rules you MUST follow:
       "name": "<source name>",
       "url": "<exact URL from candidate list>",
       "source_type": "blog" | "youtube",
+      "recommendation_reason": "<1-2 sentence reason>"
+    }
+  ]
+}
+"""
+
+_FALLBACK_SYSTEM_PROMPT = """\
+You are an expert tech content curator. Given a user's stated interests, recommend
+high-quality RSS blogs, engineering newsletters, and YouTube channels.
+
+Rules you MUST follow:
+1. Suggest real, well-known tech blogs, company engineering blogs, tech newsletters, or YouTube channels.
+2. For each source, provide its real canonical website or YouTube channel URL.
+3. Classify each source as either "blog" or "youtube". YouTube channels must have a youtube.com URL.
+4. Avoid recommending sources the user is already subscribed to.
+5. Return between 3 and 8 top recommendations.
+6. For each recommendation, write a concise reason (1–2 sentences) explaining why it matches the user's interests.
+7. Return ONLY a JSON object matching this schema — no prose, no markdown:
+
+{
+  "recommendations": [
+    {
+      "name": "<source name>",
+      "url": "<canonical URL>",
+      "source_type": "blog" | "youtube",
       "recommendation_reason": "<1–2 sentence reason>"
     }
   ]
 }
+"""
+
+
+def _build_fallback_user_prompt(
+    interests_md: str,
+    subscriptions: list["SubscribedSource"],
+) -> str:
+    if subscriptions:
+        sub_lines = [f"- {s.name} ({s.url})" for s in subscriptions]
+        subscriptions_block = "\n".join(sub_lines)
+    else:
+        subscriptions_block = "(none)"
+
+    return f"""\
+## User Interests
+
+{interests_md.strip()}
+
+## Already Subscribed (avoid recommending these)
+
+{subscriptions_block}
+
+Recommend top relevant RSS blogs and YouTube channels matching the user's interests as JSON.
 """
 
 
@@ -153,18 +201,20 @@ class RecommendationService:
             A list of SourceSuggestion objects. Returns [] on LLM failure
             rather than propagating the exception.
         """
-        if not candidates:
-            log.debug("RecommendationService: no candidates — skipping LLM call")
-            return []
-
         if not interests_md.strip():
             log.debug("RecommendationService: empty interests — skipping LLM call")
             return []
 
-        user_prompt = _build_user_prompt(interests_md, candidates, subscriptions)
+        if not candidates:
+            log.info("RecommendationService: no search candidates — using direct LLM recommendation")
+            system_prompt = _FALLBACK_SYSTEM_PROMPT
+            user_prompt = _build_fallback_user_prompt(interests_md, subscriptions)
+        else:
+            system_prompt = _SYSTEM_PROMPT
+            user_prompt = _build_user_prompt(interests_md, candidates, subscriptions)
 
         try:
-            raw = self._llm.complete(_SYSTEM_PROMPT, user_prompt)
+            raw = self._llm.complete(system_prompt, user_prompt)
         except LLMError:
             log.warning("RecommendationService: LLM call failed", exc_info=True)
             return []
@@ -184,6 +234,10 @@ class RecommendationService:
         fence_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", cleaned)
         if fence_match:
             cleaned = fence_match.group(1).strip()
+        else:
+            json_match = re.search(r"\{[\s\S]*\}", cleaned)
+            if json_match:
+                cleaned = json_match.group(0).strip()
 
         try:
             data: Any = json.loads(cleaned)
