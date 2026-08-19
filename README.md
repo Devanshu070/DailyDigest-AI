@@ -4,6 +4,12 @@ DailyDigest-AI is a multi-user, AI-powered digest application. Users subscribe t
 
 The web application also supports source management, source readability checks, AI-assisted source suggestions, digest pausing, article browsing, and on-demand digest previews.
 
+## Sample output
+
+Here's an example of a generated digest email:
+
+![Sample DailyDigest-AI email](assets/sample-digest-email.png)
+
 ## How it works
 
 1. **Ingestion** fetches items from YouTube feeds and blog/article feeds.
