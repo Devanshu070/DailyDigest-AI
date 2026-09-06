@@ -14,11 +14,13 @@ SuggestionService coordinates the full source-suggestion pipeline:
 
 Caching:
   - In-memory dict keyed by user UUID.
+  - Only nonempty results are cached; interest/subscription changes invalidate them.
   - TTL: CACHE_TTL_SECONDS (24 hours by default).
   - `refresh=True` bypasses the cache read and overwrites after regenerating.
   - Cache resets on server restart (acceptable for V1; swap for Redis later).
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -32,7 +34,7 @@ from app.recommendations.service import RecommendationService, SubscribedSource
 from app.schemas import SourceSuggestion, SourceSuggestionsResponse
 from app.search.base import SearchProvider, SearchResult
 from app.utils.suggestion_validation import SuggestionValidator
-from app.utils.url_validation import deduplicate_by_url
+from app.utils.url_validation import deduplicate_by_url, normalize_url
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +76,7 @@ Generate search queries to find relevant RSS blogs and YouTube channels.
 class _CachedResult:
     response: SourceSuggestionsResponse
     generated_at: datetime
+    profile_key: str
 
 
 # ── Service ────────────────────────────────────────────────────────────────────
@@ -107,6 +110,7 @@ class SuggestionService:
         interests_md: str,
         subscriptions: list[SubscribedSource],
         refresh: bool = False,
+        exclude_urls: list[str] | None = None,
     ) -> SourceSuggestionsResponse:
         """
         Run the full suggestion pipeline and return a response.
@@ -116,13 +120,30 @@ class SuggestionService:
             interests_md:  User's interest profile in Markdown.
             subscriptions: User's current source subscriptions.
             refresh:       If True, bypass the cache and regenerate.
+            exclude_urls:  Previously displayed URLs for find-more requests;
+                           these requests leave the original cache untouched.
 
         Returns:
             SourceSuggestionsResponse with suggestions, cached flag, and timestamp.
         """
+        # Find-more requests must not replace the user's original cached batch.
+        if exclude_urls:
+            excluded = subscriptions + [
+                SubscribedSource(name="Previously suggested", url=url)
+                for url in exclude_urls
+            ]
+            return SourceSuggestionsResponse(
+                suggestions=self._run_pipeline(interests_md, excluded),
+                cached=False,
+                generated_at=datetime.now(tz=timezone.utc),
+            )
+
+        profile_key = hashlib.sha256(json.dumps([
+            interests_md.strip(), sorted(s.url for s in subscriptions),
+        ]).encode()).hexdigest()
         # 1. Cache check
         if not refresh:
-            cached = self._get_cached(user_id)
+            cached = self._get_cached(user_id, profile_key)
             if cached is not None:
                 log.debug("SuggestionService: returning cached result for user %s", user_id)
                 return cached
@@ -138,7 +159,13 @@ class SuggestionService:
         )
 
         # 7. Store in cache
-        self._cache[user_id] = _CachedResult(response=response, generated_at=now)
+        # Empty results can mean a transient provider failure; allow a retry.
+        if suggestions:
+            self._cache[user_id] = _CachedResult(
+                response=response, generated_at=now, profile_key=profile_key,
+            )
+        else:
+            self._cache.pop(user_id, None)
         log.debug(
             "SuggestionService: pipeline complete — %d suggestion(s) for user %s",
             len(suggestions),
@@ -148,13 +175,13 @@ class SuggestionService:
 
     # ── Cache helpers ──────────────────────────────────────────────────────────
 
-    def _get_cached(self, user_id: uuid.UUID) -> SourceSuggestionsResponse | None:
+    def _get_cached(self, user_id: uuid.UUID, profile_key: str) -> SourceSuggestionsResponse | None:
         """Return cached response if still within TTL, else None."""
         entry = self._cache.get(user_id)
         if entry is None:
             return None
         age = datetime.now(tz=timezone.utc) - entry.generated_at
-        if age > timedelta(seconds=CACHE_TTL_SECONDS):
+        if age > timedelta(seconds=CACHE_TTL_SECONDS) or entry.profile_key != profile_key:
             del self._cache[user_id]
             return None
         # Return a copy with cached=True so the caller knows the source
@@ -188,6 +215,8 @@ class SuggestionService:
 
         # 4. Dedup + cap candidates
         candidates = deduplicate_by_url(raw_results, key_fn=lambda r: r.url)
+        excluded_urls = {normalize_url(s.url) for s in subscriptions}
+        candidates = [c for c in candidates if normalize_url(c.url) not in excluded_urls]
         if len(candidates) > MAX_CANDIDATES:
             candidates = candidates[:MAX_CANDIDATES]
         log.debug("SuggestionService: %d unique candidate(s) after dedup", len(candidates))

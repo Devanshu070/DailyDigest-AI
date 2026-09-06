@@ -30,6 +30,16 @@ from app.search.base import SearchResult
 
 log = logging.getLogger(__name__)
 
+# Exa highlights may contain whole pages. Bound evidence before sending it to
+# the ranker, leaving room for its response within the provider's token budget.
+MAX_CANDIDATE_CHARS = 6_000
+MAX_INTEREST_CHARS = 2_000
+MAX_SUBSCRIPTION_CHARS = 1_000
+
+
+def _excerpt(text: str, limit: int) -> str:
+    return " ".join(text.split())[:limit]
+
 
 @dataclass
 class SubscribedSource:
@@ -50,6 +60,14 @@ Rules you MUST follow:
 1. Only recommend sources from the provided candidate list — never invent URLs.
 2. Prefer sources with strong evidence of relevance (use the provided highlight
    snippets as evidence about what the page covers).
+   Order relevant recommendations with trusted sources first: official
+   publications, research institutions, and authors with demonstrated expertise
+   where the supplied evidence supports that credibility. Then include other
+   relevant, useful sources, including lesser-known or unverified ones. Trust
+   is a ranking preference, not an eligibility requirement; do not exclude a
+   source solely because its credibility is unknown. If no trusted candidates
+   are available, still recommend other relevant sources. Do not infer trust
+   from popularity alone or describe a source as verified without evidence.
 3. Skip article pages, individual blog posts, aggregator directories, and
    low-quality or generic sites.
 4. Avoid recommending sources the user is already subscribed to.
@@ -79,7 +97,14 @@ You are an expert tech content curator. Given a user's stated interests, recomme
 high-quality RSS blogs, engineering newsletters, and YouTube channels.
 
 Rules you MUST follow:
-1. Suggest real, well-known tech blogs, company engineering blogs, tech newsletters, or YouTube channels.
+1. Suggest real, relevant tech blogs, company engineering blogs, tech newsletters, or YouTube channels.
+   Order relevant recommendations with trusted sources first, such as official
+   publications, research institutions, and authors with demonstrated expertise.
+   Then include other relevant, useful sources, including lesser-known ones.
+   Trust is a ranking preference, not an eligibility requirement; do not exclude
+   sources solely because their credibility is unknown. If no trusted sources
+   are available, still recommend other relevant sources. Do not infer trust
+   from popularity alone or describe a source as verified without evidence.
 2. For each source, provide its real canonical website or YouTube channel URL.
 3. Classify each source as either "blog" or "youtube". YouTube channels must have a youtube.com URL.
 4. Avoid recommending sources the user is already subscribed to.
@@ -132,28 +157,33 @@ def _build_user_prompt(
 
     # Format candidates
     candidate_lines: list[str] = []
+    remaining = MAX_CANDIDATE_CHARS
     for i, c in enumerate(candidates, start=1):
-        lines = [f"{i}. [{c.title}]({c.url})"]
-        if c.description:
-            lines.append(f"   Description: {c.description}")
-        if c.highlights:
-            snippet = " | ".join(h.strip() for h in c.highlights[:3])
-            lines.append(f"   Highlights: {snippet}")
-        candidate_lines.append("\n".join(lines))
+        heading = f"{i}. [{_excerpt(c.title, 100)}]({c.url})"
+        # Keep candidate URLs intact. Skip oversized entries, never truncate URLs.
+        if len(heading) + 2 > remaining:
+            continue
+        snippets = c.highlights[:2] or [c.description]
+        evidence = _excerpt(" | ".join(snippets), 240)
+        entry = heading
+        if evidence and remaining > len(heading) + 16:
+            entry += "\n   Evidence: " + evidence[:remaining - len(heading) - 16]
+        candidate_lines.append(entry)
+        remaining -= len(entry) + 2
 
     candidates_block = "\n\n".join(candidate_lines) or "(no candidates)"
 
     # Format existing subscriptions
     if subscriptions:
-        sub_lines = [f"- {s.name} ({s.url})" for s in subscriptions]
-        subscriptions_block = "\n".join(sub_lines)
+        sub_lines = [f"- {s.url}" for s in subscriptions]
+        subscriptions_block = "\n".join(sub_lines)[:MAX_SUBSCRIPTION_CHARS]
     else:
         subscriptions_block = "(none)"
 
     return f"""\
 ## User Interests
 
-{interests_md.strip()}
+{_excerpt(interests_md, MAX_INTEREST_CHARS)}
 
 ## Candidate Sources
 

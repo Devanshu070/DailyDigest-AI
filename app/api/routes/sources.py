@@ -358,6 +358,7 @@ def get_suggestion_service():
 def get_source_suggestions(
     email: str = Query(..., description="User email"),
     refresh: bool = Query(False, description="Bypass cache and regenerate suggestions"),
+    exclude_urls: list[str] | None = Query(None, description="Previously displayed suggestion URLs to exclude"),
     db: Session = Depends(get_db_session),
     suggestion_service=Depends(get_suggestion_service),
 ):
@@ -398,4 +399,5 @@ def get_source_suggestions(
         interests_md=user.interests_md,
         subscriptions=subscriptions,
         refresh=refresh,
+        exclude_urls=exclude_urls,
     )
