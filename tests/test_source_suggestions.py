@@ -283,3 +283,92 @@ def test_refresh_bypasses_cache() -> None:
     res2 = service.suggest(user_id=user_id, interests_md=interests, subscriptions=[], refresh=True)
     assert res2.cached is False
     assert mock_search.call_count > 1
+
+
+def test_oversized_search_excerpts_are_bounded() -> None:
+    from app.recommendations.service import _build_user_prompt
+
+    candidates = [
+        SearchResult(
+            title='AI Engineering ' * 100,
+            url=f'https://example.com/blog-{i}',
+            description='Long page text ' * 10_000,
+            highlights=['Long page text ' * 10_000] * 3,
+        )
+        for i in range(25)
+    ]
+    prompt = _build_user_prompt(
+        interests_md='AI ' * 10_000,
+        candidates=candidates,
+        subscriptions=[SubscribedSource(name='Blog', url=f'https://sub.com/{i}') for i in range(500)],
+    )
+    assert len(prompt) < 9_500
+    assert candidates[0].url in prompt
+    assert 'Long page text' in prompt
+    assert 'Description:' not in prompt  # Do not duplicate highlights as description.
+
+
+def test_empty_result_can_retry_without_refresh() -> None:
+    search = MockSearchProvider(should_fail=True)
+    llm = MockLLMProvider()
+    service = SuggestionService(search, RecommendationService(llm), SuggestionValidator(), llm)
+    user_id = uuid.uuid4()
+    first = service.suggest(user_id, 'AI', [])
+    assert first.suggestions == []
+    search.should_fail = False
+    second = service.suggest(user_id, 'AI', [])
+    assert second.cached is False
+    assert len(second.suggestions) == 1
+
+
+def test_changed_interests_invalidate_cache() -> None:
+    search = MockSearchProvider()
+    llm = MockLLMProvider()
+    service = SuggestionService(search, RecommendationService(llm), SuggestionValidator(), llm)
+    user_id = uuid.uuid4()
+    service.suggest(user_id, 'AI', [])
+    calls = search.call_count
+    response = service.suggest(user_id, 'Software engineering', [])
+    assert response.cached is False
+    assert search.call_count > calls
+
+
+def test_new_subscription_invalidates_cache() -> None:
+    search = MockSearchProvider()
+    llm = MockLLMProvider()
+    service = SuggestionService(search, RecommendationService(llm), SuggestionValidator(), llm)
+    user_id = uuid.uuid4()
+    first = service.suggest(user_id, 'AI', [])
+    assert len(first.suggestions) == 1
+    response = service.suggest(user_id, 'AI', [SubscribedSource(name='AI Blog', url='https://example.com/feed')])
+    assert response.cached is False
+    assert response.suggestions == []
+
+
+def test_find_more_excludes_seen_sources_and_preserves_initial_cache() -> None:
+    search = MockSearchProvider()
+    llm = MockLLMProvider()
+    service = SuggestionService(search, RecommendationService(llm), SuggestionValidator(), llm)
+    user_id = uuid.uuid4()
+    initial = service.suggest(user_id, 'AI', [])
+    first_url = initial.suggestions[0].url
+    search.results.append(SearchResult(title='New Blog', url='https://new.com/feed', description='AI'))
+    llm.recommendation_response = '''{"recommendations": [
+        {"name": "Old", "url": "https://www.example.com/feed/", "source_type": "blog", "recommendation_reason": "AI"},
+        {"name": "New", "url": "https://new.com/feed", "source_type": "blog", "recommendation_reason": "AI"}
+    ]}'''
+    more = service.suggest(user_id, 'AI', [], exclude_urls=[first_url])
+    assert [item.url for item in more.suggestions] == ['https://new.com/feed']
+    assert more.cached is False
+    cached = service.suggest(user_id, 'AI', [])
+    assert cached.cached is True
+    assert cached.suggestions == initial.suggestions
+
+
+def test_find_more_returns_empty_when_all_candidates_seen() -> None:
+    search = MockSearchProvider()
+    llm = MockLLMProvider()
+    service = SuggestionService(search, RecommendationService(llm), SuggestionValidator(), llm)
+    response = service.suggest(uuid.uuid4(), 'AI', [], exclude_urls=['https://www.example.com/feed/'])
+    assert response.suggestions == []
+    assert llm.call_count == 1  # Query generation only; no ranking of excluded candidates.

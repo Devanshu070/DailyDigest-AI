@@ -89,10 +89,11 @@ export const testAllSources = (email) =>
     method: "POST",
   });
 
-export const getSourceSuggestions = (email, refresh = false) =>
-  authFetch(
-    `/api/v1/sources/suggestions?email=${encodeURIComponent(email)}&refresh=${refresh}`
-  );
+export const getSourceSuggestions = (email, refresh = false, excludeUrls = []) => {
+  const params = new URLSearchParams({ email, refresh: String(refresh) });
+  excludeUrls.forEach((url) => params.append("exclude_urls", url));
+  return authFetch(`/api/v1/sources/suggestions?${params}`);
+};
 
 
 // ── Articles ─────────────────────────────────────────────────────────────────
