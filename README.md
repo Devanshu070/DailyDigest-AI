@@ -49,6 +49,7 @@ app/
   prompts/             Default interest-profile prompt
   recommendations/     Candidate-source ranking and fallback recommendations
   search/              Search-provider abstraction and Exa integration
+  suggestions/         Source-discovery orchestration and in-memory cache
   utils/               URL validation, suggestion validation, and shared helpers
   runner.py            Scheduled and manual pipeline orchestration
 frontend/
@@ -96,7 +97,7 @@ Optional variables:
 
 | Variable | Purpose |
 |---|---|
-| `EXA_API_KEY` | Enables Exa-backed source discovery; suggestions degrade gracefully without it |
+| `EXA_API_KEY` | Enables Exa-backed source discovery; the suggestions endpoint returns an empty list without it |
 | `FIREBASE_PROJECT_ID` | Enables backend verification for account deletion |
 
 Never commit `.env`, API keys, Gmail credentials, or Firebase service-account credentials.
@@ -185,12 +186,20 @@ The pipeline state is held in memory by the API process. The Pipeline page resto
 
 - **Dashboard:** digest status, latest articles, and source overview.
 - **Sources:** add or remove blog/article and YouTube sources, set a personal display name, check one source, or check all sources.
-- **Suggested sources:** generate source recommendations from the user's interest profile and select recommendations before adding them.
+- **Suggested sources:** discover sources from the user's interests, preview blog/YouTube links in a new tab, and select sources before adding them. **Find more** appears below the last result and appends new suggestions while preserving the current list and selections.
 - **Articles:** browse subscribed-source articles and inspect summaries when available.
 - **Preferences:** edit interests, configure the daily UTC delivery time, pause/resume scheduled delivery, and delete the PostgreSQL account.
 - **Pipeline:** trigger a manual run and view its progress and generated HTML preview.
 
 Firebase Authentication manages frontend sign-in. Application users, subscriptions, preferences, sources, and articles remain in PostgreSQL; the backend uses the Firebase ID token specifically to authorize account deletion.
+
+### Source discovery
+
+Source discovery generates up to five search queries, retrieves up to five Exa results per query, and ranks candidates using bounded excerpts. The ranking prompt prioritizes relevant trusted sources, then includes other useful sources; unknown credibility does not disqualify a source. This is a ranking preference, not a verification badge.
+
+The backend removes duplicate and already-subscribed normalized URLs. **Find more** also excludes results already shown, without replacing the original cached batch. Nonempty initial results are cached in memory for 24 hours; changes to interests or subscription URLs invalidate that cache. Empty results are not cached, so users can retry.
+
+See [Source suggestions](docs/source_suggestions.md) for API parameters, input limits, cache behavior, and known limitations.
 
 ## GitHub Actions delivery
 
@@ -236,8 +245,8 @@ npm run build
 - [`docs/architecture_final.md`](docs/architecture_final.md) — architecture diagrams
 - [`docs/dev_architecture.md`](docs/dev_architecture.md) — developer module and pipeline reference
 - [`docs/example_pipeline.md`](docs/example_pipeline.md) — worked pipeline example
-- [`docs/data_flow.md`](docs/data_flow.md) — end-to-end data flow
-- [`docs/implementation.md`](docs/implementation.md) — implementation notes
+- [`docs/source_suggestions.md`](docs/source_suggestions.md) — source discovery, Find more, ranking, and cache behavior
+- [`docs/implementation.md`](docs/implementation.md) — original implementation plan and links to current behavior
 
 ## License
 

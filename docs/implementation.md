@@ -1,5 +1,11 @@
 # DailyDigest-AI — Implementation Plan
 
+This document preserves the original backend implementation plan; proposed
+components below are not a complete inventory of the current application.
+For current setup and features, see the [README](../README.md). For the
+implemented source-discovery flow, including Find more and source previews,
+see [Source suggestions](./source_suggestions.md).
+
 A Python backend that aggregates AI news from YouTube channels and blog posts, stores them in PostgreSQL, and generates a personalized daily digest via LLM, delivered to your inbox.
 
 ---

@@ -4,6 +4,31 @@ This document explains how DailyDigest-AI executes at runtime from ingestion to 
 
 For design philosophy, see [`architecture.md`](./architecture.md).
 
+## Source discovery in the web application
+
+Source suggestions run separately from article summarization and email delivery:
+
+```text
+Sources modal → GET /api/v1/sources/suggestions
+  → load interests and subscriptions
+  → SuggestionService: cache lookup, query generation, Exa search
+  → remove duplicate/excluded candidates
+  → RecommendationService: bounded evidence, LLM ranking
+  → SuggestionValidator: URL/type checks and subscription exclusion
+  → modal: preview links, selection, Find more, Add Selected
+```
+
+`app/suggestions/service.py` owns orchestration and the process-local cache.
+`app/recommendations/service.py` builds the ranking prompt and parses results.
+`app/utils/suggestion_validation.py` applies deterministic validation.
+`frontend/src/components/SourceSuggestionsModal.js` renders through a portal to
+`document.body`, keeping it centered outside the page's transformed container.
+
+Find-more requests pass repeated `exclude_urls` query parameters. They append
+new results in the modal and bypass cache storage, preserving the initial batch.
+The full behavior, limits, and recovery cases are documented in
+[`source_suggestions.md`](./source_suggestions.md).
+
 ---
 
 ## 1. Runtime Pipeline
@@ -77,7 +102,7 @@ cleaned_content → summary           chunk2 + summary1 → summary2
 ┌────────────────────────────────────────────┐
 │  Email Delivery Layer  (app/email/)        │
 │  sends the final digest to the inbox       │
-│  · html_content → Resend API → inbox       │
+│  · html_content → Gmail SMTP → inbox       │
 └────────────────────────────────────────────┘
                   │
                   ▼
@@ -118,7 +143,7 @@ fetched → cleaned → summarized → included_in_digest
 | `app/processing/cleaner.py`     | HTML strip · normalize · token estimate         | LLM calls · I/O        |
 | `app/llm/`                      | `BaseLLMProvider.complete()` · providers        | Business logic         |
 | `app/digest/generator.py`       | Step 1 summarization · Step 2 assembly          | Email · ingestion      |
-| `app/email/sender.py`           | Markdown → HTML · Resend delivery               | Articles · summaries   |
+| `app/email/sender.py`           | Markdown → HTML · Gmail SMTP delivery               | Articles · summaries   |
 | `app/models/`                   | ORM models · enums · `TimestampMixin`           | Business logic         |
 | `app/runner.py`                 | Pipeline sequencing only                        | Scraping · LLM · email |
 | `app/utils/`                    | Hashing · retry · text utilities                | Domain logic           |
